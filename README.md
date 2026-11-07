@@ -74,17 +74,86 @@ omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --en
 
 ## ⚙️ How to Connect Google Calendar
 
-### Option 1: Secret iCal URL (Fastest — 30 seconds)
-1. Open [Google Calendar](https://calendar.google.com).
-2. On the left sidebar, click the three dots `⋮` next to your calendar > **Settings and sharing**.
-3. Scroll down to **"Integrate calendar"** and copy the **"Secret address in iCal format"** (`https://.../basic.ics`).
-4. Click the clock on your top bar to open the calendar.
-5. Press `S` (or click the gear icon `󰒓`), paste the URL, and click **Save & Sync**.
+The plugin supports two flexible synchronization methods depending on your needs.
 
-### Option 2: Google Cloud OAuth2 (Two-Way Sync)
-1. Create a Desktop OAuth credential in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
-2. Save the downloaded JSON as `~/.config/omarchy/gcal/credentials.json`.
-3. In the calendar settings drawer (`S`), click **Connect via OAuth2** (or run `omarchy-gcal auth` in your terminal) and complete login in your browser.
+### ⚖️ Comparison: Which method should you choose?
+
+| Feature | Option 1: Secret iCal URL (.ics) | Option 2: Google Cloud OAuth2 |
+|---|---|---|
+| **Setup Time** | ⚡ **~30 seconds** | 🛠️ **~3–5 minutes** (one-time setup) |
+| **Sync Direction** | 📥 **One-way** (Google ➔ Omarchy) | 🔄 **Two-way** (Google ⇄ Omarchy) |
+| **Event Creation** | Saved locally in Omarchy | Pushed to Google Cloud / Mobile app |
+| **Google Cloud Project** | ❌ None required | ✅ Free Google Cloud Desktop App |
+| **Expiration** | 🔒 Never (permanent secret link) | 🔄 Automatic background token refresh |
+| **Best For** | Instant setup, viewing agenda & alerts | Full calendar control & bidirectional sync |
+
+---
+
+### Option 1: Secret iCal URL (Fastest — 30 seconds, Read-Only)
+
+Ideal if you only want to view your agenda, see your upcoming meetings, and receive native desktop notifications.
+
+1. Open [Google Calendar (Web)](https://calendar.google.com/) in your browser.
+2. In the left sidebar under **"My calendars"**, hover over your main calendar and click the three dots `⋮` > **Settings and sharing**.
+3. Scroll down to the **"Integrate calendar"** section.
+4. Locate the field **"Secret address in iCal format"** and copy the URL (`https://calendar.google.com/calendar/ical/.../basic.ics`).
+   > ⚠️ **Important:** Copy the **Secret address**, not the public address. The secret address allows Omarchy to read your private events without publishing them to the web.
+5. Click the clock on your Omarchy top bar to open the calendar.
+6. Press `S` (or click the gear icon `󰒓`), paste the URL into the **iCal (.ics) URL** field, and click **Save & Sync** (or press Enter).
+
+---
+
+### Option 2: Google Cloud OAuth2 (Two-Way Sync — Read & Write)
+
+Ideal if you want events created inside Omarchy (via `+ Event`, pressing `N`, or `omarchy-gcal add`) to sync straight to Google Calendar servers, making them instantly visible on your phone and Google Calendar web.
+
+#### 1. Create a Free Project in Google Cloud
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Click the project dropdown at the top and select **"New Project"**.
+3. Name it `Omarchy Calendar` and click **Create**. Ensure this new project is selected in the top bar.
+
+#### 2. Enable the Google Calendar API
+1. In the navigation menu, go to **APIs & Services > Library**.
+2. Search for `Google Calendar API`, click on it, and click **Enable**.
+
+#### 3. Configure the OAuth Consent Screen
+1. In the left sidebar, click **APIs & Services > OAuth consent screen**.
+2. Select User Type **External** and click **Create**.
+3. Fill in the required fields:
+   - **App name:** `Omarchy Calendar`
+   - **User support email:** Your Google email
+   - **Developer contact information:** Your Google email
+4. Click **Save and Continue**.
+5. On the **Scopes** page, click **Add or Remove Scopes**, select `.../auth/calendar` (Google Calendar API), and click **Update** > **Save and Continue**.
+6. On the **Test users** page, click **+ Add users**, enter your Google email address, and click **Add** > **Save and Continue**.
+
+#### 4. Create OAuth Client Credentials
+1. In the left sidebar, click **Credentials**.
+2. Click **+ Create Credentials > OAuth client ID**.
+3. For **Application type**, choose **Desktop app**.
+4. Set the name to `Omarchy Shell` and click **Create**.
+5. In the confirmation dialog, click **Download JSON** (⬇️).
+
+#### 5. Authenticate in Omarchy
+Open your terminal and run:
+
+```bash
+omarchy-gcal auth --credentials-file ~/Downloads/client_secret_*.json
+```
+*(Replace with the actual path to your downloaded JSON file).*
+
+> **GUI Alternative:** You can also rename the downloaded file to `credentials.json`, place it in `~/.config/omarchy/gcal/credentials.json`, open the Omarchy calendar panel, press `S`, and click **Connect via OAuth2**.
+
+6. A browser tab will open automatically. Sign in with your Google account.
+7. If you see an *"Unverified app"* warning screen, click **Advanced > Go to Omarchy Calendar (unsafe)** (this is normal for self-created personal test apps).
+8. Grant calendar access permissions and click **Continue**.
+9. The browser will confirm: *"Google Calendar conectado ao Omarchy!"*.
+
+🎉 You're all set! Tokens will now renew automatically in the background.
+
+---
+
+> 📖 **Guia em Português:** Para instruções detalhadas passo a passo em português, consulte o [docs/GUIA_DE_SINCRONIZACAO.md](docs/GUIA_DE_SINCRONIZACAO.md).
 
 ---
 
