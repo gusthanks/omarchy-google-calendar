@@ -207,6 +207,7 @@ class TestGcalBackendIntegration(unittest.TestCase):
         gcal.STATE_DIR = Path(self.temp_dir.name) / "state"
         gcal.CONFIG_FILE = gcal.CONFIG_DIR / "config.json"
         gcal.CREDENTIALS_FILE = gcal.CONFIG_DIR / "credentials.json"
+        gcal.TOKEN_FILE = gcal.CONFIG_DIR / "token.json"
         gcal.LOCAL_EVENTS_FILE = gcal.STATE_DIR / "local_events.json"
         gcal.EVENTS_CACHE_FILE = gcal.STATE_DIR / "events.json"
         gcal.ensure_dirs()
@@ -216,6 +217,7 @@ class TestGcalBackendIntegration(unittest.TestCase):
         gcal.STATE_DIR = self.orig_state
         gcal.CONFIG_FILE = self.orig_config / "config.json"
         gcal.CREDENTIALS_FILE = self.orig_config / "credentials.json"
+        gcal.TOKEN_FILE = self.orig_config / "token.json"
         gcal.LOCAL_EVENTS_FILE = self.orig_state / "local_events.json"
         gcal.EVENTS_CACHE_FILE = self.orig_state / "events.json"
         self.temp_dir.cleanup()
