@@ -415,7 +415,10 @@ def fetch_google_oauth_events(
     win_start: datetime.date,
     win_end: datetime.date,
     tz: datetime.tzinfo,
+    cfg: dict | None = None,
 ) -> list[dict]:
+    if cfg is None:
+        cfg = load_config()
     events: list[dict] = []
     cal_list_url = "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=50"
     cal_resp = google_api_request("GET", cal_list_url, access_token, cfg=cfg) or {}
@@ -1048,7 +1051,14 @@ def save_local_events(events: list[dict]) -> None:
     atomic_write_json(LOCAL_EVENTS_FILE, events, mode=0o600)
 
 
-def create_google_oauth_event(access_token: str, ev: dict, tz: datetime.tzinfo) -> dict | None:
+def create_google_oauth_event(
+    access_token: str,
+    ev: dict,
+    tz: datetime.tzinfo,
+    cfg: dict | None = None,
+) -> dict | None:
+    if cfg is None:
+        cfg = load_config()
     tz_name = getattr(tz, "key", None) or "UTC"
     body: dict = {
         "summary": ev["title"],
@@ -1105,7 +1115,7 @@ def sync_all(days_back: int = 180, days_forward: int = 400) -> dict:
         for lev in local_events:
             if lev.get("pendingSync"):
                 try:
-                    created = create_google_oauth_event(access_token, lev, tz)
+                    created = create_google_oauth_event(access_token, lev, tz, cfg=cfg)
                     if created:
                         continue
                 except Exception:
@@ -1116,8 +1126,18 @@ def sync_all(days_back: int = 180, days_forward: int = 400) -> dict:
             save_local_events(local_events)
 
         try:
-            remote_events.extend(fetch_google_oauth_events(access_token, win_start, win_end, tz))
+            remote_events.extend(fetch_google_oauth_events(access_token, win_start, win_end, tz, cfg=cfg))
             source = "oauth"
+        except urllib.error.HTTPError as exc:
+            body_txt = ""
+            try:
+                body_txt = exc.read(2048).decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+            if "has not been used" in body_txt or "accessNotConfigured" in body_txt or "SERVICE_DISABLED" in body_txt:
+                last_error = "API do Calendar desativada no Google Cloud. Ative em: https://console.developers.google.com/apis/api/calendar-json.googleapis.com"
+            else:
+                last_error = clean_str(str(exc), 160)
         except Exception as exc:
             last_error = clean_str(str(exc), 160)
 
@@ -1300,7 +1320,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     created_remote = None
     if access_token:
         try:
-            created_remote = create_google_oauth_event(access_token, new_ev, tz)
+            created_remote = create_google_oauth_event(access_token, new_ev, tz, cfg=cfg)
         except Exception:
             created_remote = None
 
