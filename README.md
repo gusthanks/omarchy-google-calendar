@@ -109,12 +109,14 @@ Ideal if you want events created inside Omarchy (via `+ Event`, pressing `N`, or
 
 #### 1. Create a Free Project in Google Cloud
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Click the project dropdown at the top and select **"New Project"**.
-3. Name it `Omarchy Calendar` and click **Create**. Ensure this new project is selected in the top bar.
+2. Click the project dropdown at the top and select **"New Project"** (or open [projectcreate](https://console.cloud.google.com/projectcreate) directly).
+3. Set **Project name** to `Omarchy Calendar`.
+4. Leave **Organization** as **"No organization"** (default for personal `@gmail.com` accounts).
+5. Click **Create** and ensure this new project is selected in the top bar.
 
 #### 2. Enable the Google Calendar API
-1. In the navigation menu, go to **APIs & Services > Library**.
-2. Search for `Google Calendar API`, click on it, and click **Enable**.
+1. In the navigation menu, go to **APIs & Services > Library** (or go directly to the [Calendar API page](https://console.cloud.google.com/marketplace/product/google/calendar-json.googleapis.com)).
+2. Click **Enable**.
 
 #### 3. Configure the OAuth Consent Screen
 1. In the left sidebar, click **APIs & Services > OAuth consent screen**.
@@ -132,17 +134,18 @@ Ideal if you want events created inside Omarchy (via `+ Event`, pressing `N`, or
 2. Click **+ Create Credentials > OAuth client ID**.
 3. For **Application type**, choose **Desktop app**.
 4. Set the name to `Omarchy Shell` and click **Create**.
-5. In the confirmation dialog, click **Download JSON** (⬇️).
+5. In the confirmation dialog, click **Download JSON** (⬇️). This saves `client_secret_*.json` into your `~/Downloads` folder.
 
-#### 5. Authenticate in Omarchy
-Open your terminal and run:
+#### 5. Authenticate in Omarchy (1 single command)
+Open your terminal and simply run:
 
 ```bash
-omarchy-gcal auth --credentials-file ~/Downloads/client_secret_*.json
+omarchy-gcal auth
 ```
-*(Replace with the actual path to your downloaded JSON file).*
 
-> **GUI Alternative:** You can also rename the downloaded file to `credentials.json`, place it in `~/.config/omarchy/gcal/credentials.json`, open the Omarchy calendar panel, press `S`, and click **Connect via OAuth2**.
+> ⚡ **Auto-Discovery:** `omarchy-gcal` automatically detects the newly downloaded `client_secret_*.json` in your `~/Downloads` folder! You don't need to rename or copy anything manually.
+>
+> *(Alternatively, pass a specific path: `omarchy-gcal auth --credentials-file ~/Downloads/client_secret_*.json`).*
 
 6. A browser tab will open automatically. Sign in with your Google account.
 7. If you see an *"Unverified app"* warning screen, click **Advanced > Go to Omarchy Calendar (unsafe)** (this is normal for self-created personal test apps).

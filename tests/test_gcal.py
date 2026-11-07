@@ -9,8 +9,10 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import tempfile
 import unittest
+from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 # Load omarchy-gcal module dynamically (file does not have .py extension)
@@ -204,6 +206,7 @@ class TestGcalBackendIntegration(unittest.TestCase):
         gcal.CONFIG_DIR = Path(self.temp_dir.name) / "config"
         gcal.STATE_DIR = Path(self.temp_dir.name) / "state"
         gcal.CONFIG_FILE = gcal.CONFIG_DIR / "config.json"
+        gcal.CREDENTIALS_FILE = gcal.CONFIG_DIR / "credentials.json"
         gcal.LOCAL_EVENTS_FILE = gcal.STATE_DIR / "local_events.json"
         gcal.EVENTS_CACHE_FILE = gcal.STATE_DIR / "events.json"
         gcal.ensure_dirs()
@@ -212,6 +215,7 @@ class TestGcalBackendIntegration(unittest.TestCase):
         gcal.CONFIG_DIR = self.orig_config
         gcal.STATE_DIR = self.orig_state
         gcal.CONFIG_FILE = self.orig_config / "config.json"
+        gcal.CREDENTIALS_FILE = self.orig_config / "credentials.json"
         gcal.LOCAL_EVENTS_FILE = self.orig_state / "local_events.json"
         gcal.EVENTS_CACHE_FILE = self.orig_state / "events.json"
         self.temp_dir.cleanup()
@@ -358,6 +362,32 @@ END:VCALENDAR"""
                 self.assertIsNotNone(res)
                 self.assertIn("items", res)
                 self.assertEqual(attempt[0], 2)
+
+    def test_cmd_auth_auto_detects_downloads(self):
+        downloads = Path(self.temp_dir.name) / "Downloads"
+        downloads.mkdir()
+        fake_client_secret = downloads / "client_secret_test123.json"
+        fake_client_secret.write_text(json.dumps({
+            "installed": {
+                "client_id": "auto_id_123",
+                "client_secret": "auto_sec_456"
+            }
+        }))
+
+        with patch.object(gcal, "HOME", Path(self.temp_dir.name)):
+            cfg = {}
+            # Before copying, get_oauth_client_config returns empty
+            cid, csec = gcal.get_oauth_client_config(cfg)
+            self.assertEqual(cid, "")
+
+            # Simulate the auto-detect logic from cmd_auth
+            candidates = sorted(downloads.glob("client_secret_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            self.assertEqual(len(candidates), 1)
+            shutil.copyfile(candidates[0], gcal.CREDENTIALS_FILE)
+
+            cid, csec = gcal.get_oauth_client_config(cfg)
+            self.assertEqual(cid, "auto_id_123")
+            self.assertEqual(csec, "auto_sec_456")
 
 
 if __name__ == "__main__":
