@@ -75,9 +75,10 @@ O Google atualizou recentemente o console para a **Google Auth Platform**. Siga 
 1. No menu lateral esquerdo, clique em **"Clients"** (ou "Credenciais" / *Credentials*).
 2. Clique em **"+ Create Client"** (ou "+ Criar credenciais" > "ID do cliente OAuth").
 3. Em **Tipo de aplicativo** (*Application type*), selecione **"Desktop app"** (*App para computador*).
-4. Em **Nome**, digite `Omarchy Shell` e clique em **"Create"** (*Criar*).
-5. Uma janela se abrirá com o cliente criado. Clique no botão **"Download JSON"** (ícone de download ⬇️).
-6. O arquivo será salvo na sua pasta `~/Downloads` com um nome parecido com `client_secret_...json`.
+4. Em **Nome**, digite `Omarchy Shell`.
+5. Se aparecer a opção *"Use this client for an AI-powered agent"*, **deixe desmarcada** (ela é voltada para integrações empresariais de agentes do Google Workspace).
+6. Clique em **"Create"** (*Criar*).
+7. Na janela que se abrir, clique em **"Download JSON"** (ícone de download ⬇️). O arquivo será salvo na sua pasta `~/Downloads` como `client_secret_...json`.
 
 ### Passo 5: Conectar ao Omarchy (1 comando no terminal)
 Com o arquivo na sua pasta `Downloads`, abra o seu terminal e execute apenas:

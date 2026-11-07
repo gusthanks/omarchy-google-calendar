@@ -131,8 +131,10 @@ Google recently updated the console to the new **Google Auth Platform**:
 1. In the left sidebar, click **Clients** (or **Credentials > Create Credentials > OAuth client ID**).
 2. Click **+ Create Client**.
 3. For **Application type**, choose **Desktop app**.
-4. Set the name to `Omarchy Shell` and click **Create**.
-5. In the confirmation dialog, click **Download JSON** (⬇️). This saves `client_secret_*.json` into your `~/Downloads` folder.
+4. Set the name to `Omarchy Shell`.
+5. Leave *"Use this client for an AI-powered agent"* **unchecked**.
+6. Click **Create**.
+7. In the confirmation dialog, click **Download JSON** (⬇️). This saves `client_secret_*.json` into your `~/Downloads` folder.
 
 #### 5. Authenticate in Omarchy (1 single command)
 Open your terminal and simply run:
