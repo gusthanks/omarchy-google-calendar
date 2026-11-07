@@ -289,17 +289,20 @@ def google_api_request(
                 return {}
             return json.loads(raw)
     except urllib.error.HTTPError as err:
-        if err.code == 401 and cfg is not None:
-            new_token = get_valid_access_token(cfg, force_refresh=True)
-            if new_token and new_token != access_token:
-                headers["Authorization"] = f"Bearer {new_token}"
-                req2 = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
-                with urllib.request.urlopen(req2, timeout=12) as resp2:
-                    raw2 = resp2.read(MAX_HTTP_BYTES).decode("utf-8")
-                    if not raw2.strip():
-                        return {}
-                    return json.loads(raw2)
-        raise
+        try:
+            if err.code == 401 and cfg is not None:
+                new_token = get_valid_access_token(cfg, force_refresh=True)
+                if new_token and new_token != access_token:
+                    headers["Authorization"] = f"Bearer {new_token}"
+                    req2 = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
+                    with urllib.request.urlopen(req2, timeout=12) as resp2:
+                        raw2 = resp2.read(MAX_HTTP_BYTES).decode("utf-8")
+                        if not raw2.strip():
+                            return {}
+                        return json.loads(raw2)
+            raise
+        finally:
+            err.close()
 
 
 def extract_meet_link(item: dict) -> str:
@@ -415,7 +418,7 @@ def fetch_google_oauth_events(
 ) -> list[dict]:
     events: list[dict] = []
     cal_list_url = "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=50"
-    cal_resp = google_api_request("GET", cal_list_url, access_token) or {}
+    cal_resp = google_api_request("GET", cal_list_url, access_token, cfg=cfg) or {}
     calendars = cal_resp.get("items", [])
     if not calendars:
         calendars = [{"id": "primary", "summary": "Google Calendar", "backgroundColor": DEFAULT_EVENT_COLOR, "selected": True}]
@@ -442,7 +445,7 @@ def fetch_google_oauth_events(
         })
         ev_url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events?{query}"
         try:
-            ev_resp = google_api_request("GET", ev_url, access_token) or {}
+            ev_resp = google_api_request("GET", ev_url, access_token, cfg=cfg) or {}
             for item in ev_resp.get("items", []):
                 parsed = parse_google_event(item, cal_name, cal_color, cal_id, tz)
                 if parsed:
@@ -815,7 +818,7 @@ def parse_ics_content(
                 rec_date: datetime.date | None = None
                 for p_name, p_params, p_val in props:
                     if p_name == "UID":
-                        uid_val = clean_str(unescape_ics_text(p_val), 128)
+                        uid_val = clean_str(unescape_ics_text(p_val), 256)
                     elif p_name == "RECURRENCE-ID":
                         rec_d, _, _ = parse_ics_datetime(p_val, p_params, tz)
                         if rec_d:
@@ -865,7 +868,8 @@ def build_ics_vevent(
                     exdates.add(d)
         elif name == "RDATE":
             for part in val.split(","):
-                d, _, _ = parse_ics_datetime(part, params, tz)
+                part_clean = part.split("/")[0].strip() if "/" in part else part.strip()
+                d, _, _ = parse_ics_datetime(part_clean, params, tz)
                 if d:
                     rdates.add(d)
         else:
@@ -1074,7 +1078,7 @@ def create_google_oauth_event(access_token: str, ev: dict, tz: datetime.tzinfo) 
         body["end"] = {"dateTime": dt_e.isoformat(), "timeZone": tz_name}
 
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    resp = google_api_request("POST", url, access_token, payload=body)
+    resp = google_api_request("POST", url, access_token, payload=body, cfg=cfg)
     if resp:
         return parse_google_event(resp, "Google Calendar", DEFAULT_EVENT_COLOR, "primary", tz)
     return None
@@ -1331,7 +1335,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
                 encoded_ev = urllib.parse.quote(remote_id, safe="")
                 url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events/{encoded_ev}"
                 try:
-                    google_api_request("DELETE", url, access_token)
+                    google_api_request("DELETE", url, access_token, cfg=cfg)
                 except Exception:
                     pass
         dismissed = cfg.get("dismissedIds", [])
@@ -1540,6 +1544,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list = sub.add_parser("list", help="List calendar events")
     p_list.add_argument("--date", default="", help="Filter by date (YYYY-MM-DD), 'today', or 'tomorrow'")
+    p_list.add_argument("-q", "--query", default="", help="Filter events by search query in title, description, or location")
     p_list.add_argument("--upcoming", action="store_true", help="List upcoming events from today onwards")
     p_list.add_argument("--limit", type=int, default=50, help="Maximum number of events to display")
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
@@ -1562,6 +1567,12 @@ def cmd_list(args: argparse.Namespace) -> int:
         filter_date = today.isoformat()
     elif filter_date == "tomorrow":
         filter_date = (today + datetime.timedelta(days=1)).isoformat()
+    elif filter_date:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", filter_date):
+            print(f"Error: invalid date format '{filter_date}' (expected YYYY-MM-DD, today, or tomorrow)", file=sys.stderr)
+            return 1
+
+    query = getattr(args, "query", "").strip().lower()
 
     filtered = []
     for ev in events:
@@ -1575,6 +1586,13 @@ def cmd_list(args: argparse.Namespace) -> int:
         elif getattr(args, "upcoming", False):
             ev_end = str(ev.get("endDate", ev.get("startDate", "")))
             if ev_end < today.isoformat():
+                continue
+        if query:
+            t = (ev.get("title") or "").lower()
+            l = (ev.get("location") or "").lower()
+            d = (ev.get("description") or "").lower()
+            c = (ev.get("calendarName") or "").lower()
+            if query not in t and query not in l and query not in d and query not in c:
                 continue
         filtered.append(ev)
 

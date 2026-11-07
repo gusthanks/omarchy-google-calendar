@@ -94,7 +94,8 @@ omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --en
 |---|---|
 | `1`, `2`, `3`, `4` | Switch to **Day**, **Week**, **Month**, **Year** view |
 | `[` / `]` or `h` / `l` | Move backward / forward in time (by day, week, month, or year) |
-| `k` / `j` | Vertical step (week or month navigation) |
+| `k` / `j` | Vertical step (move by week or year matching Up/Down arrows) |
+| `/` | Open **Search events** drawer to live-filter agenda |
 | `T` | Jump back to **Today** |
 | `N` or `+` | Open **+ Event** quick creation drawer |
 | `R` | Force immediate refresh / synchronization |
@@ -112,9 +113,13 @@ The backend engine can also be queried directly from your shell or scripts:
 # Check sync status and event count
 omarchy-gcal status
 
-# List upcoming events or events for today
+# List upcoming events or filter by date
 omarchy-gcal list --upcoming
 omarchy-gcal list --date today
+omarchy-gcal list --date tomorrow
+
+# Search events by keyword
+omarchy-gcal list -q "Standup"
 
 # Force sync
 omarchy-gcal sync

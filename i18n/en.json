@@ -61,5 +61,9 @@
   "sync.connectOAuth": "Launch OAuth2 Setup",
   "sync.saveIcs": "Save & Sync",
   "sync.closeSettings": "Close",
-  "notify.upcomingMeeting": "Meeting in %1 min (%2)"
+  "notify.upcomingMeeting": "Meeting in %1 min (%2)",
+  "search.button": "Search events (/)",
+  "search.placeholder": "Search events by title, description or location…",
+  "search.noResults": "No matching events found",
+  "search.title": "SEARCH EVENTS"
 }

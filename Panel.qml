@@ -75,6 +75,17 @@ Ui.Panel {
   property bool addingEvent: false
   property bool newEventAllDay: false
   property bool showingSyncSettings: false
+  property bool showingSearch: false
+  property string searchQuery: ""
+
+  function toggleSearch() {
+    root.showingSearch = !root.showingSearch
+    if (root.showingSearch) {
+      root.showingSyncSettings = false
+      root.addingEvent = false
+      root.searchQuery = ""
+    }
+  }
 
   readonly property var eventsByDate: calendarPayload && calendarPayload.eventsByDate
     ? calendarPayload.eventsByDate
@@ -526,6 +537,7 @@ Ui.Panel {
       property alias eventLocationField: eventLocationField
       property alias eventDescriptionField: eventDescriptionField
       property alias icsUrlField: icsUrlField
+      property alias searchField: searchField
 
       implicitHeight: calendarColumn.implicitHeight
       anchors.fill: parent
@@ -538,6 +550,7 @@ Ui.Panel {
         || eventLocationField.activeFocus
         || eventDescriptionField.activeFocus
         || icsUrlField.activeFocus
+        || searchField.activeFocus
 
       onMoveRequested: function(dx, dy) {
         if (dx !== 0) root.stepActiveView(dx)
@@ -549,7 +562,8 @@ Ui.Panel {
       }
       onActivateRequested: root.goToToday()
       onCloseRequested: {
-        if (root.addingEvent) root.cancelAddingEvent()
+        if (root.showingSearch) root.showingSearch = false
+        else if (root.addingEvent) root.cancelAddingEvent()
         else if (root.showingSyncSettings) root.toggleSyncSettings()
         else if (root.editingLife) root.cancelEditingLife()
         else root.close()
@@ -561,17 +575,16 @@ Ui.Panel {
         else if (t === "j") {
           if (root.viewMode === "day") root.moveWeek(1)
           else if (root.viewMode === "week") root.moveMonth(1)
-          else if (root.viewMode === "month") root.moveMonth(1)
           else root.moveYear(1)
         }
         else if (t === "k") {
           if (root.viewMode === "day") root.moveWeek(-1)
           else if (root.viewMode === "week") root.moveMonth(-1)
-          else if (root.viewMode === "month") root.moveMonth(-1)
           else root.moveYear(-1)
         }
         else if (t === "{") root.moveYear(-1)
         else if (t === "}") root.moveYear(1)
+        else if (t === "/") root.toggleSearch()
         else if (t === "t" || t === "T") root.goToToday()
         else if (t === "1" || t === "d" || t === "D") root.setViewMode("day")
         else if (t === "2" || t === "w") root.setViewMode("week")
@@ -925,6 +938,20 @@ Ui.Panel {
                 }
 
                 Button {
+                  iconText: "󰍉"
+                  selected: root.showingSearch
+                  tooltipText: tr.t("search.button")
+                  bordered: true
+                  foreground: root.contentForeground
+                  accent: Commons.Color.accent
+                  fontFamily: root.contentFontFamily
+                  fontSize: Style.font.bodySmall
+                  horizontalPadding: Style.space(7)
+                  verticalPadding: Style.space(4)
+                  onClicked: root.toggleSearch()
+                }
+
+                Button {
                   iconText: "󰒓"
                   selected: root.showingSyncSettings
                   tooltipText: tr.t("sync.settings")
@@ -936,6 +963,153 @@ Ui.Panel {
                   horizontalPadding: Style.space(7)
                   verticalPadding: Style.space(4)
                   onClicked: root.toggleSyncSettings()
+                }
+              }
+            }
+          }
+
+          // ---- Search Drawer (when search button or '/' is active)
+          Item {
+            visible: root.showingSearch
+            width: parent.width
+            height: visible ? searchCard.height + Style.space(4) : 0
+
+            BorderSurface {
+              id: searchCard
+              anchors.horizontalCenter: parent.horizontalCenter
+              width: root.fullGridWidth
+              height: searchCol.implicitHeight + Style.space(16)
+              radius: Style.cornerRadius
+              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
+              borderSpec: Border.controlSpec("normal", root.contentForeground, Commons.Color.accent)
+
+              Column {
+                id: searchCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Style.space(8)
+                spacing: Style.space(6)
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  TextField {
+                    id: searchField
+                    width: parent.width - closeSearchBtn.width - Style.space(6)
+                    placeholderText: tr.t("search.placeholder")
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    verticalPadding: Style.space(4)
+                    onTextChanged: { root.searchQuery = text }
+                  }
+
+                  Button {
+                    id: closeSearchBtn
+                    iconText: "󰅖"
+                    bordered: true
+                    foreground: root.contentForeground
+                    accent: Commons.Color.accent
+                    fontFamily: root.contentFontFamily
+                    fontSize: Style.font.bodySmall
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(4)
+                    onClicked: { root.showingSearch = false }
+                  }
+                }
+
+                Text {
+                  visible: root.searchQuery.trim() !== "" && searchRepeater.count === 0
+                  textFormat: Text.PlainText
+                  width: parent.width
+                  text: tr.t("search.noResults")
+                  color: Qt.darker(root.contentForeground, 1.8)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Repeater {
+                  id: searchRepeater
+                  model: root.searchQuery.trim() !== ""
+                    ? Model.searchEvents(root.calendarPayload ? root.calendarPayload.events : [], root.searchQuery).slice(0, 6)
+                    : []
+
+                  Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    height: Style.space(26)
+                    radius: Style.cornerRadius
+                    color: searchRowMouse.containsMouse
+                      ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.1)
+                      : "transparent"
+
+                    Row {
+                      anchors.fill: parent
+                      anchors.leftMargin: Style.space(6)
+                      anchors.rightMargin: Style.space(6)
+                      spacing: Style.space(8)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.startDate
+                        color: Commons.Color.accent
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.allDay ? tr.t("events.allDay") : (modelData.startTime || "--:--")
+                        color: Qt.darker(root.contentForeground, 1.4)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width - Style.space(170)
+                        elide: Text.ElideRight
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Model.neutralizeMarkup(modelData.title || "(Sem título)", 50)
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                      }
+
+                      Text {
+                        visible: Boolean(modelData.meetLink || modelData.location)
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.meetLink ? "󰌹 Meet" : "📍"
+                        color: Qt.darker(root.contentForeground, 1.6)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+
+                    MouseArea {
+                      id: searchRowMouse
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: {
+                        var parsed = Model.parseDateKey(modelData.startDate)
+                        if (parsed) {
+                          root.selectedYear = parsed.year
+                          root.selectedMonth = parsed.month
+                          root.selectedDay = parsed.day
+                          root.selectedKey = modelData.startDate
+                          root.setViewMode("day")
+                          root.showingSearch = false
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

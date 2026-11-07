@@ -197,6 +197,7 @@ END:VCALENDAR"""
 
 class TestGcalBackendIntegration(unittest.TestCase):
     def setUp(self):
+        self.tz = datetime.timezone(datetime.timedelta(hours=-3))
         self.temp_dir = tempfile.TemporaryDirectory()
         self.orig_config = gcal.CONFIG_DIR
         self.orig_state = gcal.STATE_DIR
@@ -246,6 +247,117 @@ class TestGcalBackendIntegration(unittest.TestCase):
 
         cache_after = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
         self.assertEqual(len(cache_after.get("events", [])), 0)
+
+    def test_cmd_list_filtering(self):
+        import argparse
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        # Add 2 events
+        ev1 = argparse.Namespace(
+            title="Design Review",
+            date="2026-11-20",
+            end_date="2026-11-20",
+            start="09:00",
+            end="10:00",
+            all_day=False,
+            location="Room 101",
+            description="Discuss UI",
+            color="#039be5"
+        )
+        ev2 = argparse.Namespace(
+            title="Budget Planning",
+            date="2026-11-21",
+            end_date="2026-11-21",
+            start="14:00",
+            end="15:00",
+            all_day=False,
+            location="Finance Hall",
+            description="Q4 budget",
+            color="#039be5"
+        )
+        gcal.cmd_add(ev1)
+        gcal.cmd_add(ev2)
+
+        # Filter by query
+        f = io.StringIO()
+        with redirect_stdout(f):
+            args_list = argparse.Namespace(date="", query="budget", upcoming=False, limit=50, json=True)
+            ret = gcal.cmd_list(args_list)
+        self.assertEqual(ret, 0)
+        out = json.loads(f.getvalue())
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["title"], "Budget Planning")
+
+        # Invalid date format error
+        err_buf = io.StringIO()
+        with redirect_stderr(err_buf):
+            args_bad_date = argparse.Namespace(date="invalid-date", query="", upcoming=False, limit=50, json=False)
+            ret_err = gcal.cmd_list(args_bad_date)
+        self.assertEqual(ret_err, 1)
+        self.assertIn("Error: invalid date format", err_buf.getvalue())
+
+    def test_rdate_period_and_long_uid(self):
+        long_uid = "long-uid-" + "a" * 150
+        ics = f"""BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:{long_uid}
+DTSTART:20261110T100000Z
+DURATION:PT1H
+SUMMARY:Master Series
+RDATE:20261112T100000Z/PT1H,20261114T100000Z/20261114T110000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:{long_uid}
+RECURRENCE-ID:20261112T100000Z
+DTSTART:20261112T100000Z
+DURATION:PT1H
+SUMMARY:Overridden Master
+END:VEVENT
+END:VCALENDAR"""
+        events = gcal.parse_ics_content(ics, datetime.date(2026, 11, 1), datetime.date(2026, 11, 30), self.tz)
+        # Should include start date (Nov 10), overridden Nov 12, and RDATE Nov 14
+        dates = [e["startDate"] for e in events]
+        self.assertIn("2026-11-10", dates)
+        self.assertIn("2026-11-12", dates)
+        self.assertIn("2026-11-14", dates)
+        # Overridden occurrence has the new title
+        nov12 = [e for e in events if e["startDate"] == "2026-11-12"][0]
+        self.assertEqual(nov12["title"], "Overridden Master")
+
+    def test_google_api_request_401_token_refresh(self):
+        import io
+        from unittest.mock import patch, MagicMock
+        import urllib.error
+
+        cfg = {"clientId": "client_id", "clientSecret": "secret"}
+        tokens = {"access_token": "expired_tok", "refresh_token": "valid_refresh", "expires_at": 9999999999}
+        gcal.atomic_write_json(gcal.TOKEN_FILE, tokens)
+
+        # Mock urllib to return 401 on first call, 200 on second call
+        attempt = [0]
+        def mock_urlopen(req, timeout=12):
+            attempt[0] += 1
+            if attempt[0] == 1:
+                fp = io.BytesIO(b'{"error": "invalid_grant"}')
+                raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, fp)
+            resp = MagicMock()
+            resp.read.return_value = b'{"items": [{"id": "ev1", "summary": "Sync Test"}]}'
+            resp.__enter__.return_value = resp
+            resp.__exit__.return_value = False
+            return resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            with patch.object(gcal, "get_valid_access_token", return_value="refreshed_access_tok"):
+                res = gcal.google_api_request(
+                    "GET",
+                    "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+                    "expired_tok",
+                    cfg=cfg
+                )
+                self.assertIsNotNone(res)
+                self.assertIn("items", res)
+                self.assertEqual(attempt[0], 2)
 
 
 if __name__ == "__main__":

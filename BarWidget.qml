@@ -59,24 +59,42 @@ Ui.BarWidget {
   readonly property var verticalLines: displayText.split("\n")
 
   function checkMeetingNotifications() {
-    if (!root.notificationsEnabled || root.notifyBeforeMinutes <= 0) return
-    var nxt = root.upcomingSummary.nextEvent
-    if (!nxt || root.upcomingSummary.minutesUntilNext <= 0 || root.upcomingSummary.minutesUntilNext > root.notifyBeforeMinutes) return
-    var notifKey = String(nxt.id || "") + "@" + String(nxt.startDate || "") + "T" + String(nxt.startTime || "")
-    if (root.notifiedEventKeys[notifKey]) return
+    if (!root.notificationsEnabled || root.notifyBeforeMinutes < 0) return
+    var todayKey = Model.keyForDate(root.displayDate)
+    var todayEvents = Model.eventsForDateKey(root.calendarPayload ? root.calendarPayload.eventsByDate : null, todayKey)
+    var nowMinutes = root.displayDate.getHours() * 60 + root.displayDate.getMinutes()
 
-    var keys = Object.assign({}, root.notifiedEventKeys)
-    keys[notifKey] = true
-    root.notifiedEventKeys = keys
+    var updatedKeys = null
+    for (var i = 0; i < todayEvents.length; i++) {
+      var ev = todayEvents[i]
+      if (ev.allDay) continue
+      var eff = Model.effectiveMinutesForDate(ev, todayKey)
+      var diff = eff.startMinutes - nowMinutes
+      if (diff >= 0 && diff <= root.notifyBeforeMinutes) {
+        var notifKey = String(ev.id || (ev.startDate + "_" + ev.startTime + "_" + ev.title))
+        if (root.notifiedEventKeys[notifKey]) continue
 
-    var title = tr.t("notify.upcomingMeeting")
-      .arg(Commons.I18n.formatNumber(root.upcomingSummary.minutesUntilNext))
-      .arg(nxt.startTime)
-    var body = Model.neutralizeMarkup(nxt.title, 80)
-    if (nxt.location) body += "\n📍 " + Model.neutralizeMarkup(nxt.location, 80)
-    else if (nxt.meetLink) body += "\n󰌹 " + Model.neutralizeMarkup(nxt.meetLink, 80)
+        if (!updatedKeys) updatedKeys = Object.assign({}, root.notifiedEventKeys)
+        updatedKeys[notifKey] = true
 
-    Quickshell.execDetached(["notify-send", "-a", "Google Calendar", "-i", "x-office-calendar", title, body])
+        var title = tr.t("notify.upcomingMeeting")
+          .arg(Commons.I18n.formatNumber(diff))
+          .arg(ev.startTime)
+        var body = Model.neutralizeMarkup(ev.title, 80)
+        if (ev.location) body += "\n📍 " + Model.neutralizeMarkup(ev.location, 80)
+        else if (ev.meetLink) body += "\n󰌹 " + Model.neutralizeMarkup(ev.meetLink, 80)
+
+        var meetUrl = ev.actionUrl || ev.meetLink || ev.htmlLink || ""
+        var cmd = ["omarchy-notification-send", "--app-name", "Google Calendar", "-g", "󰸗", "-u", "normal", title, body]
+        if (meetUrl !== "") {
+          cmd.push("--exec", "omarchy-launch-browser", meetUrl)
+        }
+        Quickshell.execDetached(cmd)
+      }
+    }
+    if (updatedKeys) {
+      root.notifiedEventKeys = updatedKeys
+    }
   }
 
   readonly property string barTooltipText: {

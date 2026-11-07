@@ -178,6 +178,37 @@ test("upcomingEventSummary with active event and lookahead to tomorrow", () => {
   assert.notEqual(sum2.nextEvent, null);
   assert.equal(sum2.nextEvent.title, "Client Pitch");
   assert.equal(sum2.nextIsTomorrow, true);
+  assert.equal(sum2.barBadgeText, "→ 09:00 Client Pitch");
+});
+
+test("upcomingEventSummary resolves both active and upcoming back-to-back events", () => {
+  const now = new Date(2026, 10, 7, 10, 20); // 10:20
+  const ev1 = {
+    id: "m-1",
+    title: "Current Sync",
+    startDate: "2026-11-07",
+    endDate: "2026-11-07",
+    startTime: "10:00",
+    endTime: "10:30",
+    allDay: false
+  };
+  const ev2 = {
+    id: "m-2",
+    title: "Next Workshop",
+    startDate: "2026-11-07",
+    endDate: "2026-11-07",
+    startTime: "10:30",
+    endTime: "11:30",
+    allDay: false
+  };
+  const byDate = Model.indexEventsByDate([ev1, ev2]);
+  const summary = Model.upcomingEventSummary(byDate, now, 720);
+  assert.notEqual(summary.activeEvent, null);
+  assert.equal(summary.activeEvent.title, "Current Sync");
+  assert.notEqual(summary.nextEvent, null);
+  assert.equal(summary.nextEvent.title, "Next Workshop");
+  assert.equal(summary.minutesUntilNext, 10);
+  assert.equal(summary.barBadgeText, "Current Sync");
 });
 
 test("searchEvents helper filters accurately", () => {

@@ -857,8 +857,8 @@ function upcomingEventSummary(eventsByDate, nowDate, maxHorizonMinutes) {
     if (ev.allDay) continue
     var eff = effectiveMinutesForDate(ev, todayKey)
     if (nowMinutes >= eff.startMinutes && nowMinutes < eff.endMinutes) {
-      activeEvent = ev
-      break
+      if (!activeEvent) activeEvent = ev
+      continue
     }
     if (eff.startMinutes > nowMinutes) {
       var diff = eff.startMinutes - nowMinutes
@@ -891,7 +891,7 @@ function upcomingEventSummary(eventsByDate, nowDate, maxHorizonMinutes) {
   var focusEvent = activeEvent || nextEvent
   if (activeEvent) {
     badgeText = neutralizeMarkup(activeEvent.title, 22)
-  } else if (nextEvent && minutesUntilNext <= 180) {
+  } else if (nextEvent && (minutesUntilNext <= 180 || nextIsTomorrow)) {
     var prefix = nextIsTomorrow ? "→ " : ""
     badgeText = prefix + nextEvent.startTime + " " + neutralizeMarkup(nextEvent.title, 18)
   }
