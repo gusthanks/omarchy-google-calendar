@@ -11,7 +11,7 @@ import "Model.js" as Model
 // multi-view (Day / Week / Month / Year) calendar popup.
 Ui.BarWidget {
   id: root
-  moduleName: "omarchy-google-calendar"
+  moduleName: (settings && settings.id) ? settings.id : "omarchy-google-calendar"
 
   Commons.Translations {
     id: tr
@@ -32,14 +32,21 @@ Ui.BarWidget {
   readonly property bool showsSeconds: Model.clockNeedsSeconds(activeFormat)
 
   // ---- Google Calendar state & upcoming event summary for the top bar
-  readonly property string gcalBinPath: Qt.resolvedUrl("omarchy-gcal").toString().replace(/^file:\/\//, "")
+  readonly property string gcalBinPath: {
+    var custom = setting("gcalBinPath", "")
+    if (custom !== "") return custom
+    return Qt.resolvedUrl("omarchy-gcal").toString().replace(/^file:\/\//, "")
+  }
   readonly property string gcalCachePath: Quickshell.env("HOME") + "/.local/state/omarchy/gcal/events.json"
   readonly property bool autoSyncEnabled: setting("autoSync", true) !== false
   readonly property int syncIntervalMinutes: Math.max(1, parseInt(setting("syncIntervalMinutes", 10), 10) || 10)
   readonly property bool showBarEventBadge: setting("showBarEventBadge", true) !== false
+  readonly property bool notificationsEnabled: setting("notificationsEnabled", true) !== false
+  readonly property int notifyBeforeMinutes: Math.max(0, parseInt(setting("notifyBeforeMinutes", 10), 10) || 10)
 
   property var calendarPayload: Model.parseEventsPayload("")
   property bool syncing: false
+  property var notifiedEventKeys: ({})
 
   readonly property var upcomingSummary: Model.upcomingEventSummary(calendarPayload.eventsByDate, displayDate, 720)
   readonly property string baseDisplayText: formatted(displayDate)
@@ -51,6 +58,27 @@ Ui.BarWidget {
   }
   readonly property var verticalLines: displayText.split("\n")
 
+  function checkMeetingNotifications() {
+    if (!root.notificationsEnabled || root.notifyBeforeMinutes <= 0) return
+    var nxt = root.upcomingSummary.nextEvent
+    if (!nxt || root.upcomingSummary.minutesUntilNext <= 0 || root.upcomingSummary.minutesUntilNext > root.notifyBeforeMinutes) return
+    var notifKey = String(nxt.id || "") + "@" + String(nxt.startDate || "") + "T" + String(nxt.startTime || "")
+    if (root.notifiedEventKeys[notifKey]) return
+
+    var keys = Object.assign({}, root.notifiedEventKeys)
+    keys[notifKey] = true
+    root.notifiedEventKeys = keys
+
+    var title = tr.t("notify.upcomingMeeting")
+      .arg(Commons.I18n.formatNumber(root.upcomingSummary.minutesUntilNext))
+      .arg(nxt.startTime)
+    var body = Model.neutralizeMarkup(nxt.title, 80)
+    if (nxt.location) body += "\n📍 " + Model.neutralizeMarkup(nxt.location, 80)
+    else if (nxt.meetLink) body += "\n󰌹 " + Model.neutralizeMarkup(nxt.meetLink, 80)
+
+    Quickshell.execDetached(["notify-send", "-a", "Google Calendar", "-i", "x-office-calendar", title, body])
+  }
+
   readonly property string barTooltipText: {
     var baseTip = I18n.t("clock.toggleFormat")
     if (upcomingSummary.activeEvent) {
@@ -60,8 +88,9 @@ Ui.BarWidget {
       return Model.neutralizeMarkup(actLine + " · " + baseTip, 180)
     }
     if (upcomingSummary.nextEvent) {
+      var timePrefix = upcomingSummary.nextIsTomorrow ? (tr.t("nav.tomorrow") + " ") : ""
       var nxtLine = tr.t("events.upcoming").arg(
-        upcomingSummary.nextEvent.startTime + " " + Model.neutralizeMarkup(upcomingSummary.nextEvent.title, 48)
+        timePrefix + upcomingSummary.nextEvent.startTime + " " + Model.neutralizeMarkup(upcomingSummary.nextEvent.title, 48)
       )
       return Model.neutralizeMarkup(nxtLine + " · " + baseTip, 180)
     }
@@ -203,7 +232,10 @@ Ui.BarWidget {
   WallClock {
     id: clock
     step: root.showsSeconds ? 1000 : 60000
-    onDateChanged: root.displayDate = date
+    onDateChanged: {
+      root.displayDate = date
+      root.checkMeetingNotifications()
+    }
   }
 
   Loader {
@@ -218,7 +250,39 @@ Ui.BarWidget {
   }
 
   ShellIpc {
+    target: root.moduleName
+
+    function refresh(): void { root.broadcast("refresh") }
+    function cycleFormat(): void { root.cycleFormat() }
+    function toggleWeekStart(): void { root.toggleWeekStart() }
+    function setViewMode(mode: string): void { root.setViewMode(mode) }
+    function syncCalendar(): void { root.triggerSync() }
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.togglePanel() }
+  }
+
+  ShellIpc {
     target: "omarchy.clock"
+    enabled: root.moduleName !== "omarchy.clock"
+
+    function refresh(): void { root.broadcast("refresh") }
+    function cycleFormat(): void { root.cycleFormat() }
+    function toggleWeekStart(): void { root.toggleWeekStart() }
+    function setViewMode(mode: string): void { root.setViewMode(mode) }
+    function syncCalendar(): void { root.triggerSync() }
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.togglePanel() }
+  }
+
+  ShellIpc {
+    target: "omarchy-google-calendar"
+    enabled: root.moduleName !== "omarchy-google-calendar" && root.moduleName !== "omarchy.clock"
 
     function refresh(): void { root.broadcast("refresh") }
     function cycleFormat(): void { root.cycleFormat() }

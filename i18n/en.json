@@ -60,5 +60,6 @@
   "sync.oauthHint": "Run 'omarchy-gcal auth' or place credentials.json in ~/.config/omarchy/gcal/",
   "sync.connectOAuth": "Launch OAuth2 Setup",
   "sync.saveIcs": "Save & Sync",
-  "sync.closeSettings": "Close"
+  "sync.closeSettings": "Close",
+  "notify.upcomingMeeting": "Meeting in %1 min (%2)"
 }

@@ -77,6 +77,27 @@ def ensure_dirs() -> None:
         os.chmod(STATE_DIR, 0o700)
     except OSError:
         pass
+    ensure_cli_symlink()
+
+
+def ensure_cli_symlink() -> None:
+    """Ensures ~/.local/bin/omarchy-gcal points to this script so user has CLI access."""
+    local_bin = HOME / ".local" / "bin"
+    target = local_bin / "omarchy-gcal"
+    try:
+        this_script = Path(__file__).resolve()
+    except Exception:
+        return
+    try:
+        local_bin.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            if target.resolve() != this_script:
+                target.unlink()
+                target.symlink_to(this_script)
+        else:
+            target.symlink_to(this_script)
+    except Exception:
+        pass
 
 
 def atomic_write_json(path: Path, data: object, mode: int = 0o600) -> None:
@@ -188,7 +209,7 @@ def get_oauth_client_config(cfg: dict) -> tuple[str, str]:
     return "", ""
 
 
-def get_valid_access_token(cfg: dict) -> str:
+def get_valid_access_token(cfg: dict, force_refresh: bool = False) -> str:
     if not TOKEN_FILE.is_file():
         return ""
     token_data = load_json(TOKEN_FILE, {})
@@ -198,7 +219,7 @@ def get_valid_access_token(cfg: dict) -> str:
     expires_at = float(token_data.get("expires_at", 0) or 0)
     now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
-    if access_token and expires_at > now + 60:
+    if not force_refresh and access_token and expires_at > now + 60:
         return access_token
 
     refresh_token = str(token_data.get("refresh_token", "")).strip()
@@ -248,6 +269,7 @@ def google_api_request(
     url: str,
     access_token: str,
     payload: dict | None = None,
+    cfg: dict | None = None,
 ) -> dict | None:
     if not url.startswith("https://www.googleapis.com/"):
         raise ValueError("Invalid Google API URL")
@@ -260,11 +282,24 @@ def google_api_request(
         headers["Content-Type"] = "application/json; charset=utf-8"
         data_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        raw = resp.read(MAX_HTTP_BYTES).decode("utf-8")
-        if not raw.strip():
-            return {}
-        return json.loads(raw)
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw = resp.read(MAX_HTTP_BYTES).decode("utf-8")
+            if not raw.strip():
+                return {}
+            return json.loads(raw)
+    except urllib.error.HTTPError as err:
+        if err.code == 401 and cfg is not None:
+            new_token = get_valid_access_token(cfg, force_refresh=True)
+            if new_token and new_token != access_token:
+                headers["Authorization"] = f"Bearer {new_token}"
+                req2 = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
+                with urllib.request.urlopen(req2, timeout=12) as resp2:
+                    raw2 = resp2.read(MAX_HTTP_BYTES).decode("utf-8")
+                    if not raw2.strip():
+                        return {}
+                    return json.loads(raw2)
+        raise
 
 
 def extract_meet_link(item: dict) -> str:
@@ -482,6 +517,21 @@ def parse_ics_prop(line: str) -> tuple[str, dict[str, str], str]:
     return name, params, val
 
 
+def parse_ics_duration(val: str) -> datetime.timedelta | None:
+    text = str(val or "").strip().upper()
+    m = re.match(r"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$", text)
+    if not m:
+        return None
+    sign = -1 if m.group(1) == "-" else 1
+    weeks = int(m.group(2) or 0)
+    days = int(m.group(3) or 0)
+    hours = int(m.group(4) or 0)
+    minutes = int(m.group(5) or 0)
+    seconds = int(m.group(6) or 0)
+    td = datetime.timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=seconds)
+    return td if sign == 1 else -td
+
+
 def parse_ics_datetime(raw_val: str, params: dict[str, str], default_tz: datetime.tzinfo) -> tuple[datetime.date | None, datetime.datetime | None, bool]:
     val = raw_val.strip()
     if not val:
@@ -515,7 +565,9 @@ def parse_ics_datetime(raw_val: str, params: dict[str, str], default_tz: datetim
     if m.group(7) == "Z":
         dt = dt.replace(tzinfo=datetime.timezone.utc).astimezone(default_tz)
     else:
-        tzid = params.get("TZID", "").strip()
+        tzid = params.get("TZID", "").strip().strip('"').strip("'")
+        if tzid.startswith("/"):
+            tzid = tzid.lstrip("/")
         event_tz = default_tz
         if tzid:
             try:
@@ -660,7 +712,7 @@ def expand_rrule_dates(
     # Fast-forward unbounded rules (no COUNT) that started long before win_start
     if max_count == 0 and cursor < win_start:
         if freq == "DAILY":
-            skip = max(0, (win_start - cursor).days // interval)
+            skip = max(0, ((win_start - cursor).days - 7) // interval) if bydays else max(0, (win_start - cursor).days // interval)
             cursor = cursor + datetime.timedelta(days=skip * interval)
         elif freq == "WEEKLY":
             skip = max(0, ((win_start - cursor).days - 7) // (7 * interval))
@@ -712,11 +764,12 @@ def expand_rrule_dates(
                 if max_count and emitted >= max_count:
                     return results
         else:
-            emitted += 1
-            if win_start <= cursor <= win_end and cursor not in exdates:
-                results.append(cursor)
-            if max_count and emitted >= max_count:
-                return results
+            if not bydays or cursor.weekday() in bydays:
+                emitted += 1
+                if win_start <= cursor <= win_end and cursor not in exdates:
+                    results.append(cursor)
+                if max_count and emitted >= max_count:
+                    return results
 
         if freq == "DAILY":
             cursor = cursor + datetime.timedelta(days=interval)
@@ -802,6 +855,7 @@ def build_ics_vevent(
 ) -> list[dict]:
     prop_map: dict[str, tuple[dict[str, str], str]] = {}
     exdates: set[datetime.date] = set()
+    rdates: set[datetime.date] = set()
 
     for name, params, val in props:
         if name == "EXDATE":
@@ -809,6 +863,11 @@ def build_ics_vevent(
                 d, _, _ = parse_ics_datetime(part, params, tz)
                 if d:
                     exdates.add(d)
+        elif name == "RDATE":
+            for part in val.split(","):
+                d, _, _ = parse_ics_datetime(part, params, tz)
+                if d:
+                    rdates.add(d)
         else:
             prop_map[name] = (params, val)
 
@@ -832,6 +891,14 @@ def build_ics_vevent(
             end_d = ed
         if edt:
             end_dt = edt
+    elif "DURATION" in prop_map:
+        dur = parse_ics_duration(prop_map["DURATION"][1])
+        if dur is not None and dur.total_seconds() > 0:
+            if all_day:
+                end_d = start_d + datetime.timedelta(days=max(1, dur.days))
+            elif start_dt:
+                end_dt = start_dt + dur
+                end_d = end_dt.date()
 
     if all_day:
         if end_d > start_d:
@@ -842,14 +909,14 @@ def build_ics_vevent(
     else:
         if not start_dt:
             return []
-        if not end_dt or end_dt < start_dt:
+        if not end_dt or end_dt <= start_dt:
             end_dt = start_dt + datetime.timedelta(hours=1)
         end_d = end_dt.date()
         span_days = max(0, (end_d - start_d).days)
         start_time_str = start_dt.strftime("%H:%M")
         end_time_str = end_dt.strftime("%H:%M")
 
-    uid = clean_str(unescape_ics_text(prop_map.get("UID", ({}, ""))[1]), 128) or secrets.token_hex(8)
+    uid = clean_str(unescape_ics_text(prop_map.get("UID", ({}, ""))[1]), 256) or secrets.token_hex(8)
     if overridden_by_uid and "RECURRENCE-ID" not in prop_map and uid in overridden_by_uid:
         exdates = exdates | overridden_by_uid[uid]
 
@@ -873,6 +940,12 @@ def build_ics_vevent(
             occ_dates = []
         else:
             occ_dates = [start_d]
+
+    if rdates:
+        for rd in rdates:
+            if win_start <= rd <= win_end and rd not in exdates and rd not in occ_dates:
+                occ_dates.append(rd)
+        occ_dates.sort()
 
     out: list[dict] = []
     for occ_start in occ_dates:
@@ -904,9 +977,10 @@ def fetch_ics_feeds(
     win_start: datetime.date,
     win_end: datetime.date,
     tz: datetime.tzinfo,
-) -> list[dict]:
+) -> tuple[list[dict], list[str]]:
     palette = ["#039be5", "#33b679", "#8e24aa", "#f6bf26", "#e67c73"]
     all_events: list[dict] = []
+    errors: list[str] = []
     for idx, raw_url in enumerate(ics_urls[:10]):
         url = raw_url.strip()
         if url.startswith("webcal://"):
@@ -919,11 +993,15 @@ def fetch_ics_feeds(
             headers={"User-Agent": "Omarchy-Clock-Calendar/2.0"},
             method="GET",
         )
-        with _HTTPS_OPENER.open(req, timeout=12) as resp:
-            raw_bytes = resp.read(MAX_HTTP_BYTES)
-        raw_text = raw_bytes.decode("utf-8", errors="replace")
-        all_events.extend(parse_ics_content(raw_text, win_start, win_end, tz, feed_color=color))
-    return all_events
+        try:
+            with _HTTPS_OPENER.open(req, timeout=12) as resp:
+                raw_bytes = resp.read(MAX_HTTP_BYTES)
+            raw_text = raw_bytes.decode("utf-8", errors="replace")
+            all_events.extend(parse_ics_content(raw_text, win_start, win_end, tz, feed_color=color))
+        except Exception as exc:
+            err_msg = clean_str(str(exc), 140)
+            errors.append(f"{url[:40]}...: {err_msg}")
+    return all_events, errors
 
 
 def load_local_events() -> list[dict]:
@@ -1041,14 +1119,15 @@ def sync_all(days_back: int = 180, days_forward: int = 400) -> dict:
 
     ics_urls = cfg.get("icsUrls", [])
     if ics_urls:
-        try:
-            ics_ev = fetch_ics_feeds(ics_urls, win_start, win_end, tz)
-            remote_events.extend(ics_ev)
-            if source == "local":
-                source = "ics"
-        except Exception as exc:
-            if not last_error:
-                last_error = clean_str(str(exc), 160)
+        ics_ev, ics_errors = fetch_ics_feeds(ics_urls, win_start, win_end, tz)
+        remote_events.extend(ics_ev)
+        if ics_ev and source == "local":
+            source = "ics"
+        if ics_errors:
+            if not remote_events and not last_error:
+                last_error = ics_errors[0]
+            elif not last_error:
+                last_error = f"Aviso: {ics_errors[0]}"
 
     # Merge remote + local, respecting dismissedIds
     merged_by_id: dict[str, dict] = {}
@@ -1458,7 +1537,74 @@ def build_parser() -> argparse.ArgumentParser:
     p_auth.add_argument("--client-secret", default="")
 
     sub.add_parser("status", help="Show current sync status and event count")
+
+    p_list = sub.add_parser("list", help="List calendar events")
+    p_list.add_argument("--date", default="", help="Filter by date (YYYY-MM-DD), 'today', or 'tomorrow'")
+    p_list.add_argument("--upcoming", action="store_true", help="List upcoming events from today onwards")
+    p_list.add_argument("--limit", type=int, default=50, help="Maximum number of events to display")
+    p_list.add_argument("--json", action="store_true", help="Output as JSON")
+
     return parser
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    if not EVENTS_CACHE_FILE.is_file():
+        sync_all()
+    cache = load_json(EVENTS_CACHE_FILE, {})
+    events = cache.get("events", []) if isinstance(cache, dict) else []
+
+    tz = local_tz()
+    today = datetime.datetime.now(tz).date()
+
+    filter_date = getattr(args, "date", "").strip().lower()
+    if filter_date == "today":
+        filter_date = today.isoformat()
+    elif filter_date == "tomorrow":
+        filter_date = (today + datetime.timedelta(days=1)).isoformat()
+
+    filtered = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if filter_date:
+            ev_start = str(ev.get("startDate", ""))
+            ev_end = str(ev.get("endDate", ev_start))
+            if not (ev_start <= filter_date <= ev_end):
+                continue
+        elif getattr(args, "upcoming", False):
+            ev_end = str(ev.get("endDate", ev.get("startDate", "")))
+            if ev_end < today.isoformat():
+                continue
+        filtered.append(ev)
+
+    limit = getattr(args, "limit", 50)
+    if limit > 0:
+        filtered = filtered[:limit]
+
+    if getattr(args, "json", False):
+        print(json.dumps(filtered, indent=2, ensure_ascii=False))
+        return 0
+
+    if not filtered:
+        msg = f"Nenhum evento encontrado{' para ' + filter_date if filter_date else ''}."
+        print(msg)
+        return 0
+
+    print(f"{'DATA':<12} {'HORA':<13} {'TÍTULO':<34} {'LOCAL / LINK'}")
+    print("─" * 78)
+    for ev in filtered:
+        d_str = ev.get("startDate", "")
+        if ev.get("allDay"):
+            t_str = "Dia inteiro"
+        else:
+            st = ev.get("startTime", "")
+            et = ev.get("endTime", "")
+            t_str = f"{st} - {et}" if et else st
+        title = clean_str(ev.get("title", "(Sem título)"), 32)
+        loc = clean_str(ev.get("meetLink") or ev.get("location") or "", 24)
+        print(f"{d_str:<12} {t_str:<13} {title:<34} {loc}")
+    return 0
 
 
 def main() -> int:
@@ -1482,6 +1628,8 @@ def main() -> int:
         return cmd_set_ics(args)
     if cmd == "auth":
         return cmd_auth(args)
+    if cmd == "list":
+        return cmd_list(args)
     if cmd == "status":
         if not EVENTS_CACHE_FILE.is_file():
             sync_all()

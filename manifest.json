@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omarchy-google-calendar",
   "name": "Google Calendar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Gustavo Costa",
   "description": "Google Calendar synchronization and multi-view agenda (Day, Week, Month, Year) for Omarchy",
   "kinds": [
@@ -15,6 +15,7 @@
     "displayName": "Google Calendar",
     "description": "Date/time label with Google Calendar sync and Day, Week, Month, Year views",
     "category": "Time",
+    "defaultSection": "center",
     "allowMultiple": false
   }
 }

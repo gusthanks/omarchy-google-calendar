@@ -11,8 +11,8 @@ import "Model.js" as Model
 // for the Omarchy clock widget.
 Ui.Panel {
   id: root
-  moduleName: "omarchy-google-calendar"
-  ipcTarget: "omarchy.clock"
+  moduleName: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "omarchy-google-calendar"
+  ipcTarget: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "omarchy.clock"
   manageIpc: false
 
   Commons.Translations {
@@ -24,7 +24,9 @@ Ui.Panel {
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
 
-  readonly property string gcalBinPath: Qt.resolvedUrl("omarchy-gcal").toString().replace(/^file:\/\//, "")
+  readonly property string gcalBinPath: (hostWidget && hostWidget.gcalBinPath)
+    ? hostWidget.gcalBinPath
+    : Qt.resolvedUrl("omarchy-gcal").toString().replace(/^file:\/\//, "")
 
   // ---- Today & WallClock
   property date today: new Date()
@@ -554,8 +556,20 @@ Ui.Panel {
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
-        if (t === "[") root.stepActiveView(-1)
-        else if (t === "]") root.stepActiveView(1)
+        if (t === "[" || t === "h") root.stepActiveView(-1)
+        else if (t === "]" || t === "l") root.stepActiveView(1)
+        else if (t === "j") {
+          if (root.viewMode === "day") root.moveWeek(1)
+          else if (root.viewMode === "week") root.moveMonth(1)
+          else if (root.viewMode === "month") root.moveMonth(1)
+          else root.moveYear(1)
+        }
+        else if (t === "k") {
+          if (root.viewMode === "day") root.moveWeek(-1)
+          else if (root.viewMode === "week") root.moveMonth(-1)
+          else if (root.viewMode === "month") root.moveMonth(-1)
+          else root.moveYear(-1)
+        }
         else if (t === "{") root.moveYear(-1)
         else if (t === "}") root.moveYear(1)
         else if (t === "t" || t === "T") root.goToToday()
@@ -975,6 +989,30 @@ Ui.Panel {
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
+                  }
+                }
+
+                Row {
+                  visible: Boolean(root.calendarPayload && root.calendarPayload.lastError)
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "󰅚"
+                    color: "#e67c73"
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width - Style.space(24)
+                    wrapMode: Text.WordWrap
+                    text: root.calendarPayload ? root.calendarPayload.lastError : ""
+                    color: "#e67c73"
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
                   }
                 }
 
@@ -1938,6 +1976,8 @@ Ui.Panel {
                       anchors.top: parent.top
                       anchors.bottom: parent.bottom
                       hoverEnabled: true
+                      cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: { if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl) }
 
                       PanelToolTip {
                         visible: dayAllDayCardMouse.containsMouse
@@ -2108,6 +2148,8 @@ Ui.Panel {
                               anchors.top: parent.top
                               anchors.bottom: parent.bottom
                               hoverEnabled: true
+                              cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                              onClicked: { if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl) }
 
                               PanelToolTip {
                                 visible: slotEvCardMouse.containsMouse
@@ -2502,6 +2544,9 @@ Ui.Panel {
                       anchors.top: parent.top
                       anchors.bottom: parent.bottom
                       hoverEnabled: true
+                      cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: { if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl) }
+                      onDoubleClicked: root.setViewMode("day")
 
                       PanelToolTip {
                         visible: agendaRowMouse.containsMouse

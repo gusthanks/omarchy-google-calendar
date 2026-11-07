@@ -51,8 +51,9 @@
   - **Month:** Classic Omarchy calendar grid enriched with event badges and selected day agenda.
   - **Year:** 12-month bird's-eye view showing annual event distribution.
 - ⚡ **Instant Event Creation:** Fast inline `+ Event` drawer with keyboard focus (`N` or `+`). Works even offline as a local agenda!
-- 🔔 **Top Bar Indicator:** Displays your upcoming meeting time and title directly beside the clock when an event is approaching.
-- ⌨️ **Keyboard Driven:** Full keyboard navigation (`1`–`4`, `[` / `]`, `T`, `N`, `R`, `S`, `Esc`).
+- 🔔 **Desktop & Bar Notifications:** Native desktop reminder notification 10 minutes before your meetings, plus live upcoming indicator directly beside the clock.
+- ⌨️ **Keyboard & Vim Driven:** Full keyboard navigation (`1`–`4`, `[` / `]`, Vim `h`/`j`/`k`/`l`, `T`, `N`, `R`, `S`, `Esc`).
+- 🖱️ **Interactive Event Cards:** Single click to open Google Meet/Zoom links directly; double click to inspect the day's full agenda.
 - ⏳ **Memento Mori:** Retains Omarchy's beloved year progress bar and life expectancy counter.
 - 🌍 **Bilingual:** Native Portuguese (`pt-BR`) and English (`en`) support, following your Omarchy system language live.
 - 🪶 **Zero External Dependencies:** Sync engine runs on pure Python 3 standard library (`urllib`, `sqlite3`, `json`).
@@ -92,7 +93,8 @@ omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --en
 | Shortcut | Description |
 |---|---|
 | `1`, `2`, `3`, `4` | Switch to **Day**, **Week**, **Month**, **Year** view |
-| `[` / `]` | Move backward / forward in time (by day, week, month, or year) |
+| `[` / `]` or `h` / `l` | Move backward / forward in time (by day, week, month, or year) |
+| `k` / `j` | Vertical step (week or month navigation) |
 | `T` | Jump back to **Today** |
 | `N` or `+` | Open **+ Event** quick creation drawer |
 | `R` | Force immediate refresh / synchronization |
@@ -107,8 +109,12 @@ omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --en
 The backend engine can also be queried directly from your shell or scripts:
 
 ```bash
-# Check sync status and cached events
+# Check sync status and event count
 omarchy-gcal status
+
+# List upcoming events or events for today
+omarchy-gcal list --upcoming
+omarchy-gcal list --date today
 
 # Force sync
 omarchy-gcal sync

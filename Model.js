@@ -869,12 +869,31 @@ function upcomingEventSummary(eventsByDate, nowDate, maxHorizonMinutes) {
     }
   }
 
+  var nextIsTomorrow = false
+  if (!activeEvent && nextEvent === null) {
+    var tomorrowDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1))
+    var tomorrowKey = dateKey(tomorrowDate.getUTCFullYear(), tomorrowDate.getUTCMonth(), tomorrowDate.getUTCDate())
+    var tomorrowEvents = eventsForDateKey(eventsByDate, tomorrowKey)
+    for (var j = 0; j < tomorrowEvents.length; j++) {
+      var tev = tomorrowEvents[j]
+      if (tev.allDay) continue
+      var teff = effectiveMinutesForDate(tev, tomorrowKey)
+      var tdiff = (1440 - nowMinutes) + teff.startMinutes
+      if (tdiff <= horizon && (nextEvent === null || tdiff < minutesUntilNext)) {
+        nextEvent = tev
+        minutesUntilNext = tdiff
+        nextIsTomorrow = true
+      }
+    }
+  }
+
   var badgeText = ""
   var focusEvent = activeEvent || nextEvent
   if (activeEvent) {
     badgeText = neutralizeMarkup(activeEvent.title, 22)
   } else if (nextEvent && minutesUntilNext <= 180) {
-    badgeText = nextEvent.startTime + " " + neutralizeMarkup(nextEvent.title, 18)
+    var prefix = nextIsTomorrow ? "→ " : ""
+    badgeText = prefix + nextEvent.startTime + " " + neutralizeMarkup(nextEvent.title, 18)
   }
 
   return {
@@ -882,10 +901,30 @@ function upcomingEventSummary(eventsByDate, nowDate, maxHorizonMinutes) {
     todayCount: todayEvents.length,
     activeEvent: activeEvent,
     nextEvent: nextEvent,
+    nextIsTomorrow: nextIsTomorrow,
     focusEvent: focusEvent,
     minutesUntilNext: minutesUntilNext,
     barBadgeText: badgeText
   }
+}
+
+function searchEvents(events, query) {
+  if (!Array.isArray(events)) return []
+  var q = String(query === undefined || query === null ? "" : query).trim().toLowerCase()
+  if (q === "") return events.slice()
+  var results = []
+  for (var i = 0; i < events.length; i++) {
+    var ev = events[i]
+    if (!ev) continue
+    var t = (ev.title || "").toLowerCase()
+    var l = (ev.location || "").toLowerCase()
+    var d = (ev.description || "").toLowerCase()
+    var c = (ev.calendarName || "").toLowerCase()
+    if (t.indexOf(q) !== -1 || l.indexOf(q) !== -1 || d.indexOf(q) !== -1 || c.indexOf(q) !== -1) {
+      results.push(ev)
+    }
+  }
+  return results
 }
 
 function validateQuickEvent(input) {
@@ -977,6 +1016,7 @@ if (typeof module !== "undefined") {
     dayViewModel: dayViewModel,
     yearViewModel: yearViewModel,
     upcomingEventSummary: upcomingEventSummary,
-    validateQuickEvent: validateQuickEvent
+    validateQuickEvent: validateQuickEvent,
+    searchEvents: searchEvents
   }
 }
