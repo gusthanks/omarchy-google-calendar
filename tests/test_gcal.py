@@ -504,6 +504,48 @@ END:VCALENDAR"""
             self.assertEqual(cid, "auto_id_123")
             self.assertEqual(csec, "auto_sec_456")
 
+    def test_search_places_and_geocode_command(self):
+        # Test empty query returns empty list
+        empty_res = gcal.search_places("")
+        self.assertEqual(empty_res, [])
+
+        # Mock urllib to test search_places parsing
+        fake_features = {
+            "features": [
+                {
+                    "properties": {
+                        "name": "Auditório Ibirapuera",
+                        "street": "Avenida Pedro Álvares Cabral",
+                        "housenumber": "s/n",
+                        "city": "São Paulo",
+                        "state": "São Paulo",
+                        "country": "Brasil"
+                    }
+                }
+            ]
+        }
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(fake_features).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_url.return_value = mock_resp
+
+            res = gcal.search_places("Ibirapuera", limit=1)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["title"], "Auditório Ibirapuera")
+            self.assertIn("Avenida Pedro Álvares Cabral", res[0]["address"])
+            self.assertIn("São Paulo", res[0]["full"])
+
+        # Test CLI geocode command
+        args = argparse.Namespace(query="Ibirapuera", limit=1)
+        with patch.object(gcal, "search_places", return_value=[{"title": "Test Place", "address": "Test City", "full": "Test Place, Test City"}]):
+            with patch("builtins.print") as mock_print:
+                ret = gcal.cmd_geocode(args)
+                self.assertEqual(ret, 0)
+                mock_print.assert_called_once()
+                out = json.loads(mock_print.call_args[0][0])
+                self.assertEqual(out[0]["title"], "Test Place")
+
 
 if __name__ == "__main__":
     unittest.main()

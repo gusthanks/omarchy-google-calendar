@@ -1733,6 +1733,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--limit", type=int, default=50, help="Maximum number of events to display")
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
 
+    p_geo = sub.add_parser("geocode", help="Search location and address suggestions via geocoding")
+    p_geo.add_argument("query", help="Location or address to search")
+    p_geo.add_argument("--limit", type=int, default=5, help="Maximum number of suggestions")
+
     return parser
 
 
@@ -1809,11 +1813,73 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def search_places(query: str, limit: int = 5) -> list:
+    query = (query or "").strip()
+    if not query:
+        return []
+    results = []
+    # 1. Try Photon (fast, structured OpenStreetMap geocoder)
+    try:
+        q_enc = urllib.parse.quote(query)
+        url = f"https://photon.komoot.io/api/?q={q_enc}&limit={limit}"
+        req = urllib.request.Request(url, headers={"User-Agent": "OmarchyGoogleCalendar/1.1"})
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for f in data.get("features", []):
+                p = f.get("properties", {})
+                name = p.get("name") or ""
+                street = p.get("street") or ""
+                num = p.get("housenumber") or ""
+                city = p.get("city") or p.get("town") or p.get("district") or ""
+                state = p.get("state") or ""
+                country = p.get("country") or ""
+                street_num = f"{street} {num}".strip() if street else ""
+                addr_parts = [part for part in [street_num, city, state, country] if part and part != name]
+                address = ", ".join(addr_parts)
+                title = name if name else (street_num or query)
+                full = f"{title}, {address}" if address and title != address else (title or address)
+                results.append({"title": title, "address": address, "full": full})
+            if results:
+                return results[:limit]
+    except Exception:
+        pass
+
+    # 2. Fallback Nominatim
+    try:
+        q_enc = urllib.parse.quote(query)
+        url = f"https://nominatim.openstreetmap.org/search?format=json&limit={limit}&q={q_enc}"
+        req = urllib.request.Request(url, headers={"User-Agent": "OmarchyGoogleCalendar/1.1"})
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for item in data:
+                raw = item.get("display_name", "")
+                parts = [s.strip() for s in raw.split(",") if s.strip()]
+                title = parts[0] if parts else query
+                address = ", ".join(parts[1:]) if len(parts) > 1 else ""
+                results.append({"title": title, "address": address, "full": raw})
+            if results:
+                return results[:limit]
+    except Exception:
+        pass
+
+    return results
+
+
+def cmd_geocode(args: argparse.Namespace) -> int:
+    query = (getattr(args, "query", "") or "").strip()
+    limit = getattr(args, "limit", 5)
+    results = search_places(query, limit=limit)
+    print(json.dumps(results, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     cmd = args.command or "sync"
 
+    if cmd == "geocode":
+        return cmd_geocode(args)
     if cmd == "sync":
         res = sync_all(
             days_back=getattr(args, "days_back", 730),

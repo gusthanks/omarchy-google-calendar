@@ -359,6 +359,51 @@ Ui.Panel {
   }
 
   // ---- Google Calendar Actions (Add Event, Delete Event, Sync, Configure)
+  property var locationSuggestions: []
+  property bool searchingLocation: false
+
+  Process {
+    id: geocodeProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        root.searchingLocation = false
+        try {
+          var items = JSON.parse(text || "[]")
+          root.locationSuggestions = Array.isArray(items) ? items : []
+        } catch (e) {
+          root.locationSuggestions = []
+        }
+      }
+    }
+    onExited: {
+      root.searchingLocation = false
+    }
+  }
+
+  Timer {
+    id: locationDebounceTimer
+    interval: 350
+    repeat: false
+    onTriggered: {
+      var q = root.newEventLocationText.trim()
+      if (q.length < 3) {
+        root.locationSuggestions = []
+        return
+      }
+      root.searchingLocation = true
+      geocodeProc.command = [root.gcalBinPath, "geocode", q, "--limit", "4"]
+      geocodeProc.running = true
+    }
+  }
+
+  function applyLocationSuggestion(item) {
+    if (!item) return
+    root.newEventLocationText = item.full || (item.title + (item.address ? (", " + item.address) : ""))
+    root.locationSuggestions = []
+  }
+
   Process {
     id: actionProc
     onExited: {
@@ -424,6 +469,7 @@ Ui.Panel {
     root.newEventTitleText = ""
     root.newEventLocationText = ""
     root.newEventDescriptionText = ""
+    root.locationSuggestions = []
     Qt.callLater(function() { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
   }
 
@@ -4285,35 +4331,131 @@ Ui.Panel {
                 width: parent.width - Style.space(64)
                 placeholderText: tr.t("form.addLocation")
                 text: root.newEventLocationText
-                onTextChanged: { root.newEventLocationText = text }
+                onTextChanged: {
+                  root.newEventLocationText = text
+                  if (text.trim().length >= 3) {
+                    locationDebounceTimer.restart()
+                  } else {
+                    root.locationSuggestions = []
+                  }
+                }
                 foreground: root.contentForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 verticalPadding: Style.space(4)
                 Keys.onPressed: function(event) {
-                  if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
-                  else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
-                  else if (event.key === Qt.Key_Tab) { eventDescriptionInput.forceActiveFocus(); event.accepted = true }
+                  if (event.key === Qt.Key_Escape) {
+                    if (root.locationSuggestions.length > 0) {
+                      root.locationSuggestions = []
+                      event.accepted = true
+                    } else {
+                      root.cancelAddingEvent()
+                      event.accepted = true
+                    }
+                  }
+                  else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    if (root.locationSuggestions.length > 0) {
+                      root.applyLocationSuggestion(root.locationSuggestions[0])
+                      event.accepted = true
+                    } else {
+                      root.commitNewEvent()
+                      event.accepted = true
+                    }
+                  }
+                  else if (event.key === Qt.Key_Tab) {
+                    root.locationSuggestions = []
+                    eventDescriptionInput.forceActiveFocus()
+                    event.accepted = true
+                  }
                 }
               }
 
               Button {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(24)
-                height: Style.space(24)
+                width: Style.space(26)
+                height: Style.space(26)
                 horizontalPadding: 0
                 verticalPadding: 0
-                iconText: "󰦩"
+                iconText: "󰊭"
+                iconSize: Style.space(13)
                 tooltipText: tr.t("form.viewOnMaps")
                 bordered: true
                 foreground: root.contentForeground
                 accent: Commons.Color.accent
-                fontFamily: root.contentFontFamily
-                fontSize: Style.font.caption
                 onClicked: {
                   var q = root.newEventLocationText.trim()
                   var url = q ? ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q)) : "https://maps.google.com"
                   root.openExternalUrl(url)
+                }
+              }
+            }
+
+            // 6b. Location Suggestions Dropdown
+            Column {
+              width: parent.width - Style.space(32)
+              anchors.horizontalCenter: parent.horizontalCenter
+              spacing: Style.space(2)
+              visible: root.locationSuggestions.length > 0
+
+              Repeater {
+                model: root.locationSuggestions
+                delegate: Rectangle {
+                  width: parent.width
+                  height: Style.space(34)
+                  radius: Style.space(4)
+                  color: locItemArea.containsMouse ? Style.pressedFillFor(root.contentForeground, Commons.Color.accent) : Commons.Color.surface
+                  border.color: locItemArea.containsMouse ? Commons.Color.accent : Commons.Color.dimmedForeground
+                  border.width: 1
+
+                  Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(8)
+                    anchors.rightMargin: Style.space(8)
+                    spacing: Style.space(8)
+
+                    Text {
+                      text: "󰍎"
+                      font.pixelSize: Style.font.caption
+                      color: Commons.Color.accent
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Column {
+                      width: parent.width - Style.space(24)
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: 0
+
+                      Text {
+                        text: modelData.title || ""
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                        elide: Text.ElideRight
+                        width: parent.width
+                      }
+
+                      Text {
+                        text: modelData.address || ""
+                        color: Commons.Color.dimmedForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Math.max(9, Style.font.caption - 2)
+                        elide: Text.ElideRight
+                        width: parent.width
+                        visible: (modelData.address || "").length > 0
+                      }
+                    }
+                  }
+
+                  MouseArea {
+                    id: locItemArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                      root.applyLocationSuggestion(modelData)
+                    }
+                  }
                 }
               }
             }
