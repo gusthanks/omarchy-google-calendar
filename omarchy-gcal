@@ -1,0 +1,1506 @@
+#!/usr/bin/env python3
+"""
+omarchy-gcal: Google Calendar + iCal (.ics) + Local Schedule backend for Omarchy Clock.
+Pure Python 3 standard library implementation (no pip dependencies required).
+"""
+
+import argparse
+import base64
+import datetime
+import hashlib
+import http.server
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+HOME = Path.home()
+CONFIG_DIR = Path(os.environ.get("OMARCHY_GCAL_CONFIG_DIR", str(HOME / ".config" / "omarchy" / "gcal")))
+STATE_DIR = Path(os.environ.get("OMARCHY_GCAL_STATE_DIR", str(HOME / ".local" / "state" / "omarchy" / "gcal")))
+
+CONFIG_FILE = CONFIG_DIR / "config.json"
+CREDENTIALS_FILE = CONFIG_DIR / "credentials.json"
+TOKEN_FILE = CONFIG_DIR / "token.json"
+LOCAL_EVENTS_FILE = STATE_DIR / "local_events.json"
+EVENTS_CACHE_FILE = STATE_DIR / "events.json"
+
+MAX_HTTP_BYTES = 5 * 1024 * 1024  # 5 MB response cap
+MAX_VEVENTS = 5000
+MAX_EVENTS = 2000
+MAX_TITLE_LEN = 240
+MAX_DESC_LEN = 1200
+MAX_LOC_LEN = 300
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not str(newurl or "").startswith("https://"):
+            raise urllib.error.URLError("Blocked redirect to non-HTTPS URL")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTPS_OPENER = urllib.request.build_opener(_HttpsOnlyRedirectHandler())
+
+GOOGLE_COLOR_MAP = {
+    "1": "#7986cb",
+    "2": "#33b679",
+    "3": "#8e24aa",
+    "4": "#e67c73",
+    "5": "#f6bf26",
+    "6": "#f4511e",
+    "7": "#039be5",
+    "8": "#616161",
+    "9": "#3f51b5",
+    "10": "#0b8043",
+    "11": "#d50000",
+}
+
+DEFAULT_EVENT_COLOR = "#039be5"
+
+
+def ensure_dirs() -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(CONFIG_DIR, 0o700)
+        os.chmod(STATE_DIR, 0o700)
+    except OSError:
+        pass
+
+
+def atomic_write_json(path: Path, data: object, mode: int = 0o600) -> None:
+    ensure_dirs()
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        try:
+            os.chmod(tmp_path, mode)
+        except OSError:
+            pass
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def load_json(path: Path, default: object) -> object:
+    if not path.is_file():
+        return default
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return json.loads(raw)
+    except Exception:
+        return default
+
+
+def local_tz() -> datetime.tzinfo:
+    tz_env = os.environ.get("TZ", "").strip()
+    if tz_env:
+        try:
+            return ZoneInfo(tz_env)
+        except Exception:
+            pass
+    try:
+        localtime = Path("/etc/localtime")
+        if localtime.is_symlink():
+            target = str(localtime.resolve())
+            marker = "/zoneinfo/"
+            if marker in target:
+                zone_name = target.split(marker, 1)[1]
+                return ZoneInfo(zone_name)
+    except Exception:
+        pass
+    return datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
+
+
+def clean_str(val: object, max_len: int = MAX_TITLE_LEN) -> str:
+    if val is None:
+        return ""
+    text = str(val).replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    if len(text) > max_len:
+        text = text[: max_len - 1] + "…"
+    return text
+
+
+def sanitize_url(val: object) -> str:
+    text = clean_str(val, 500)
+    if not text:
+        return ""
+    if text.startswith("https://"):
+        return text
+    return ""
+
+
+def sanitize_color(val: object) -> str:
+    text = clean_str(val, 16)
+    if re.match(r"^#[0-9a-fA-F]{6}$", text):
+        return text.lower()
+    return DEFAULT_EVENT_COLOR
+
+
+def load_config() -> dict:
+    cfg = load_json(CONFIG_FILE, {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    return {
+        "icsUrls": [u for u in cfg.get("icsUrls", []) if isinstance(u, str) and u.strip()],
+        "calendars": cfg.get("calendars", ["primary"]),
+        "syncIntervalMinutes": max(1, int(cfg.get("syncIntervalMinutes", 10) or 10)),
+        "dismissedIds": [str(x) for x in cfg.get("dismissedIds", []) if x],
+        "clientId": str(cfg.get("clientId", "")).strip(),
+        "clientSecret": str(cfg.get("clientSecret", "")).strip(),
+    }
+
+
+def save_config(cfg: dict) -> None:
+    atomic_write_json(CONFIG_FILE, cfg, mode=0o600)
+
+
+def get_oauth_client_config(cfg: dict) -> tuple[str, str]:
+    if cfg.get("clientId") and cfg.get("clientSecret"):
+        return cfg["clientId"], cfg["clientSecret"]
+    if CREDENTIALS_FILE.is_file():
+        raw = load_json(CREDENTIALS_FILE, {})
+        if isinstance(raw, dict):
+            block = raw.get("installed") or raw.get("web") or raw
+            if isinstance(block, dict):
+                cid = str(block.get("client_id", "")).strip()
+                csec = str(block.get("client_secret", "")).strip()
+                if cid:
+                    return cid, csec
+    return "", ""
+
+
+def get_valid_access_token(cfg: dict) -> str:
+    if not TOKEN_FILE.is_file():
+        return ""
+    token_data = load_json(TOKEN_FILE, {})
+    if not isinstance(token_data, dict):
+        return ""
+    access_token = str(token_data.get("access_token", "")).strip()
+    expires_at = float(token_data.get("expires_at", 0) or 0)
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+    if access_token and expires_at > now + 60:
+        return access_token
+
+    refresh_token = str(token_data.get("refresh_token", "")).strip()
+    client_id, client_secret = get_oauth_client_config(cfg)
+    if not client_id:
+        client_id = str(token_data.get("client_id", "")).strip()
+    if not client_secret:
+        client_secret = str(token_data.get("client_secret", "")).strip()
+
+    if not refresh_token or not client_id:
+        return ""
+
+    payload = {
+        "client_id": client_id,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }
+    if client_secret:
+        payload["client_secret"] = client_secret
+
+    data_bytes = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=data_bytes,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read(MAX_HTTP_BYTES).decode("utf-8"))
+        new_token = str(body.get("access_token", "")).strip()
+        expires_in = int(body.get("expires_in", 3600) or 3600)
+        if new_token:
+            token_data["access_token"] = new_token
+            token_data["expires_at"] = now + expires_in
+            if body.get("refresh_token"):
+                token_data["refresh_token"] = body["refresh_token"]
+            atomic_write_json(TOKEN_FILE, token_data, mode=0o600)
+            return new_token
+    except Exception:
+        pass
+    return ""
+
+
+def google_api_request(
+    method: str,
+    url: str,
+    access_token: str,
+    payload: dict | None = None,
+) -> dict | None:
+    if not url.startswith("https://www.googleapis.com/"):
+        raise ValueError("Invalid Google API URL")
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+    data_bytes = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json; charset=utf-8"
+        data_bytes = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        raw = resp.read(MAX_HTTP_BYTES).decode("utf-8")
+        if not raw.strip():
+            return {}
+        return json.loads(raw)
+
+
+def extract_meet_link(item: dict) -> str:
+    hangout = sanitize_url(item.get("hangoutLink", ""))
+    if hangout:
+        return hangout
+    conf = item.get("conferenceData")
+    if isinstance(conf, dict):
+        for ep in conf.get("entryPoints", []):
+            if isinstance(ep, dict):
+                uri = sanitize_url(ep.get("uri", ""))
+                if uri:
+                    return uri
+    loc = str(item.get("location", ""))
+    m = re.search(r"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}", loc)
+    if m:
+        return m.group(0)
+    desc = str(item.get("description", ""))
+    m2 = re.search(r"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}", desc)
+    if m2:
+        return m2.group(0)
+    return ""
+
+
+def parse_google_event(item: dict, cal_name: str, cal_color: str, cal_id: str, tz: datetime.tzinfo) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    if item.get("status") == "cancelled":
+        return None
+    start_obj = item.get("start") or {}
+    end_obj = item.get("end") or {}
+    event_id = clean_str(item.get("id", ""), 128)
+    if not event_id:
+        return None
+
+    title = clean_str(item.get("summary") or "(Sem título)", MAX_TITLE_LEN)
+    location = clean_str(item.get("location", ""), MAX_LOC_LEN)
+    description = clean_str(item.get("description", ""), MAX_DESC_LEN)
+    html_link = sanitize_url(item.get("htmlLink", ""))
+    meet_link = extract_meet_link(item)
+    color_id = str(item.get("colorId", "")).strip()
+    color = sanitize_color(GOOGLE_COLOR_MAP.get(color_id, cal_color))
+
+    if "date" in start_obj:
+        start_date = clean_str(start_obj.get("date", ""), 10)
+        end_raw = clean_str(end_obj.get("date", start_date), 10)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", start_date):
+            return None
+        try:
+            d_start = datetime.date.fromisoformat(start_date)
+            d_end = datetime.date.fromisoformat(end_raw) if re.match(r"^\d{4}-\d{2}-\d{2}$", end_raw) else d_start
+            if d_end > d_start:
+                d_end = d_end - datetime.timedelta(days=1)
+            end_date = d_end.isoformat()
+        except ValueError:
+            end_date = start_date
+        return {
+            "id": f"gcal:{cal_id}:{event_id}",
+            "remoteId": event_id,
+            "calendarId": cal_id,
+            "calendarName": clean_str(cal_name, 80),
+            "title": title,
+            "startDate": start_date,
+            "endDate": end_date,
+            "startTime": "",
+            "endTime": "",
+            "allDay": True,
+            "location": location,
+            "description": description,
+            "htmlLink": html_link,
+            "meetLink": meet_link,
+            "color": color,
+            "source": "oauth",
+        }
+
+    dt_start_str = str(start_obj.get("dateTime", "")).strip()
+    dt_end_str = str(end_obj.get("dateTime", dt_start_str)).strip()
+    if not dt_start_str:
+        return None
+    try:
+        dt_start = datetime.datetime.fromisoformat(dt_start_str.replace("Z", "+00:00")).astimezone(tz)
+        dt_end = datetime.datetime.fromisoformat(dt_end_str.replace("Z", "+00:00")).astimezone(tz) if dt_end_str else dt_start
+        if dt_end < dt_start:
+            dt_end = dt_start
+    except ValueError:
+        return None
+
+    return {
+        "id": f"gcal:{cal_id}:{event_id}",
+        "remoteId": event_id,
+        "calendarId": cal_id,
+        "calendarName": clean_str(cal_name, 80),
+        "title": title,
+        "startDate": dt_start.strftime("%Y-%m-%d"),
+        "endDate": dt_end.strftime("%Y-%m-%d"),
+        "startTime": dt_start.strftime("%H:%M"),
+        "endTime": dt_end.strftime("%H:%M"),
+        "allDay": False,
+        "location": location,
+        "description": description,
+        "htmlLink": html_link,
+        "meetLink": meet_link,
+        "color": color,
+        "source": "oauth",
+    }
+
+
+def fetch_google_oauth_events(
+    access_token: str,
+    win_start: datetime.date,
+    win_end: datetime.date,
+    tz: datetime.tzinfo,
+) -> list[dict]:
+    events: list[dict] = []
+    cal_list_url = "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=50"
+    cal_resp = google_api_request("GET", cal_list_url, access_token) or {}
+    calendars = cal_resp.get("items", [])
+    if not calendars:
+        calendars = [{"id": "primary", "summary": "Google Calendar", "backgroundColor": DEFAULT_EVENT_COLOR, "selected": True}]
+
+    time_min = datetime.datetime.combine(win_start, datetime.time.min, tzinfo=tz).astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = datetime.datetime.combine(win_end, datetime.time.max, tzinfo=tz).astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for cal in calendars:
+        if not isinstance(cal, dict):
+            continue
+        if cal.get("selected") is False and not cal.get("primary"):
+            continue
+        cal_id = str(cal.get("id", "primary")).strip()
+        cal_name = str(cal.get("summaryOverride") or cal.get("summary") or "Google Calendar").strip()
+        cal_color = sanitize_color(cal.get("backgroundColor") or DEFAULT_EVENT_COLOR)
+
+        encoded_cal = urllib.parse.quote(cal_id, safe="")
+        query = urllib.parse.urlencode({
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "maxResults": "1000",
+        })
+        ev_url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events?{query}"
+        try:
+            ev_resp = google_api_request("GET", ev_url, access_token) or {}
+            for item in ev_resp.get("items", []):
+                parsed = parse_google_event(item, cal_name, cal_color, cal_id, tz)
+                if parsed:
+                    events.append(parsed)
+        except Exception:
+            continue
+    return events
+
+
+# ---- RFC 5545 iCal (.ics) Parser ----
+
+def unfold_ics_lines(raw_text: str) -> list[str]:
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+    unfolded = re.sub(r"\n[ \t]", "", text)
+    return [line for line in unfolded.split("\n") if line.strip()]
+
+
+def unescape_ics_text(val: str) -> str:
+    out = []
+    i = 0
+    n = len(val)
+    while i < n:
+        if val[i] == "\\" and i + 1 < n:
+            nxt = val[i + 1]
+            if nxt in ("n", "N"):
+                out.append("\n")
+            elif nxt in ("\\", ",", ";", '"'):
+                out.append(nxt)
+            else:
+                out.append(nxt)
+            i += 2
+        else:
+            out.append(val[i])
+            i += 1
+    return "".join(out)
+
+
+def parse_ics_prop(line: str) -> tuple[str, dict[str, str], str]:
+    if ":" not in line:
+        return "", {}, ""
+    in_quotes = False
+    colon_idx = -1
+    for idx, ch in enumerate(line):
+        if ch == '"':
+            in_quotes = not in_quotes
+        elif ch == ":" and not in_quotes:
+            colon_idx = idx
+            break
+    if colon_idx == -1:
+        return "", {}, ""
+    left = line[:colon_idx]
+    val = line[colon_idx + 1 :]
+    parts: list[str] = []
+    cur: list[str] = []
+    q = False
+    for ch in left:
+        if ch == '"':
+            q = not q
+            cur.append(ch)
+        elif ch == ";" and not q:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    name = parts[0].strip().upper()
+    params: dict[str, str] = {}
+    for p in parts[1:]:
+        if "=" in p:
+            k, v = p.split("=", 1)
+            params[k.strip().upper()] = v.strip().strip('"')
+    return name, params, val
+
+
+def parse_ics_datetime(raw_val: str, params: dict[str, str], default_tz: datetime.tzinfo) -> tuple[datetime.date | None, datetime.datetime | None, bool]:
+    val = raw_val.strip()
+    if not val:
+        return None, None, False
+    is_date_only = params.get("VALUE", "").upper() == "DATE" or re.match(r"^\d{8}$", val) is not None
+    if is_date_only:
+        m = re.match(r"^(\d{4})(\d{2})(\d{2})", val)
+        if not m:
+            return None, None, True
+        try:
+            d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return d, None, True
+        except ValueError:
+            return None, None, True
+
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$", val)
+    if not m:
+        return None, None, False
+    try:
+        dt = datetime.datetime(
+            int(m.group(1)),
+            int(m.group(2)),
+            int(m.group(3)),
+            int(m.group(4)),
+            int(m.group(5)),
+            int(m.group(6)),
+        )
+    except ValueError:
+        return None, None, False
+
+    if m.group(7) == "Z":
+        dt = dt.replace(tzinfo=datetime.timezone.utc).astimezone(default_tz)
+    else:
+        tzid = params.get("TZID", "").strip()
+        event_tz = default_tz
+        if tzid:
+            try:
+                event_tz = ZoneInfo(tzid)
+            except Exception:
+                event_tz = default_tz
+        dt = dt.replace(tzinfo=event_tz).astimezone(default_tz)
+    return dt.date(), dt, False
+
+
+def _days_in_month(year: int, month: int) -> int:
+    if month == 12:
+        nxt = datetime.date(year + 1, 1, 1)
+    else:
+        nxt = datetime.date(year, month + 1, 1)
+    return (nxt - datetime.date(year, month, 1)).days
+
+
+def _monthly_candidates(
+    year: int,
+    month: int,
+    anchor_day: int,
+    byday_tokens: list[tuple[int | None, int]],
+    bymonthdays: list[int],
+    bysetpos: list[int],
+) -> list[datetime.date]:
+    dim = _days_in_month(year, month)
+    candidates: list[datetime.date] = []
+
+    if bymonthdays:
+        for md in bymonthdays:
+            target_d = md if md > 0 else (dim + 1 + md)
+            if 1 <= target_d <= dim:
+                candidates.append(datetime.date(year, month, target_d))
+        candidates = sorted(set(candidates))
+    elif byday_tokens:
+        month_dates = [datetime.date(year, month, d) for d in range(1, dim + 1)]
+        for ord_num, wd in byday_tokens:
+            matching = [d for d in month_dates if d.weekday() == wd]
+            if not matching:
+                continue
+            if ord_num is None:
+                candidates.extend(matching)
+            elif ord_num > 0 and ord_num <= len(matching):
+                candidates.append(matching[ord_num - 1])
+            elif ord_num < 0 and abs(ord_num) <= len(matching):
+                candidates.append(matching[ord_num])
+        candidates = sorted(set(candidates))
+    else:
+        clamped = min(anchor_day, dim)
+        candidates = [datetime.date(year, month, clamped)]
+
+    if bysetpos and candidates:
+        filtered: list[datetime.date] = []
+        for pos in bysetpos:
+            if pos > 0 and pos <= len(candidates):
+                filtered.append(candidates[pos - 1])
+            elif pos < 0 and abs(pos) <= len(candidates):
+                filtered.append(candidates[pos])
+        candidates = sorted(set(filtered))
+
+    return candidates
+
+
+def expand_rrule_dates(
+    rrule_str: str,
+    start_date: datetime.date,
+    win_start: datetime.date,
+    win_end: datetime.date,
+    exdates: set[datetime.date],
+) -> list[datetime.date]:
+    rules: dict[str, str] = {}
+    for token in rrule_str.split(";"):
+        if "=" in token:
+            k, v = token.split("=", 1)
+            rules[k.strip().upper()] = v.strip().upper()
+    freq = rules.get("FREQ", "")
+    if freq not in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY"):
+        return [start_date] if win_start <= start_date <= win_end and start_date not in exdates else []
+
+    try:
+        interval = max(1, int(rules.get("INTERVAL", "1")))
+    except ValueError:
+        interval = 1
+
+    max_count = 0
+    if "COUNT" in rules:
+        try:
+            max_count = max(1, min(1000, int(rules["COUNT"])))
+        except ValueError:
+            max_count = 0
+
+    until_date = win_end
+    if "UNTIL" in rules:
+        m = re.match(r"^(\d{4})(\d{2})(\d{2})", rules["UNTIL"])
+        if m:
+            try:
+                u = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                if u < until_date:
+                    until_date = u
+            except ValueError:
+                pass
+
+    weekday_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+    byday_raw = rules.get("BYDAY", "")
+    byday_tokens: list[tuple[int | None, int]] = []
+    for tok in byday_raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        m_bd = re.match(r"^([+-]?\d+)?(MO|TU|WE|TH|FR|SA|SU)$", tok)
+        if m_bd:
+            ord_val = int(m_bd.group(1)) if m_bd.group(1) else None
+            byday_tokens.append((ord_val, weekday_map[m_bd.group(2)]))
+    bydays = [wd for _, wd in byday_tokens]
+
+    bymonthdays: list[int] = []
+    if "BYMONTHDAY" in rules:
+        for part in rules["BYMONTHDAY"].split(","):
+            try:
+                v = int(part.strip())
+                if -31 <= v <= 31 and v != 0:
+                    bymonthdays.append(v)
+            except ValueError:
+                pass
+
+    bysetpos: list[int] = []
+    if "BYSETPOS" in rules:
+        for part in rules["BYSETPOS"].split(","):
+            try:
+                v = int(part.strip())
+                if -366 <= v <= 366 and v != 0:
+                    bysetpos.append(v)
+            except ValueError:
+                pass
+
+    results: list[datetime.date] = []
+    emitted = 0
+    cursor = start_date
+    anchor_day = start_date.day
+
+    # Fast-forward unbounded rules (no COUNT) that started long before win_start
+    if max_count == 0 and cursor < win_start:
+        if freq == "DAILY":
+            skip = max(0, (win_start - cursor).days // interval)
+            cursor = cursor + datetime.timedelta(days=skip * interval)
+        elif freq == "WEEKLY":
+            skip = max(0, ((win_start - cursor).days - 7) // (7 * interval))
+            cursor = cursor + datetime.timedelta(days=skip * 7 * interval)
+        elif freq == "MONTHLY":
+            months_diff = (win_start.year - cursor.year) * 12 + (win_start.month - cursor.month)
+            skip = max(0, (months_diff - 1) // interval)
+            if skip > 0:
+                total_m = (cursor.year * 12 + (cursor.month - 1)) + skip * interval
+                ny, nm = divmod(total_m, 12)
+                nm += 1
+                cursor = datetime.date(ny, nm, min(anchor_day, _days_in_month(ny, nm)))
+        elif freq == "YEARLY":
+            years_diff = win_start.year - cursor.year
+            skip = max(0, (years_diff - 1) // interval)
+            if skip > 0:
+                ny = cursor.year + skip * interval
+                cursor = datetime.date(ny, start_date.month, min(anchor_day, _days_in_month(ny, start_date.month)))
+
+    # Cap total iterations so malformed RRULEs never hang
+    for _ in range(3000):
+        if cursor > until_date or cursor > win_end:
+            break
+        if freq == "WEEKLY" and bydays:
+            week_monday = cursor - datetime.timedelta(days=cursor.weekday())
+            for wd in sorted(set(bydays)):
+                candidate = week_monday + datetime.timedelta(days=wd)
+                if candidate < start_date:
+                    continue
+                if candidate > until_date or candidate > win_end:
+                    break
+                emitted += 1
+                if win_start <= candidate <= win_end and candidate not in exdates:
+                    results.append(candidate)
+                if max_count and emitted >= max_count:
+                    return results
+        elif freq == "MONTHLY":
+            m_candidates = _monthly_candidates(
+                cursor.year, cursor.month, anchor_day, byday_tokens, bymonthdays, bysetpos
+            )
+            for candidate in m_candidates:
+                if candidate < start_date:
+                    continue
+                if candidate > until_date or candidate > win_end:
+                    break
+                emitted += 1
+                if win_start <= candidate <= win_end and candidate not in exdates:
+                    results.append(candidate)
+                if max_count and emitted >= max_count:
+                    return results
+        else:
+            emitted += 1
+            if win_start <= cursor <= win_end and cursor not in exdates:
+                results.append(cursor)
+            if max_count and emitted >= max_count:
+                return results
+
+        if freq == "DAILY":
+            cursor = cursor + datetime.timedelta(days=interval)
+        elif freq == "WEEKLY":
+            cursor = cursor + datetime.timedelta(days=7 * interval)
+        elif freq == "MONTHLY":
+            total_months = (cursor.year * 12 + (cursor.month - 1)) + interval
+            ny, nm = divmod(total_months, 12)
+            nm += 1
+            cursor = datetime.date(ny, nm, min(anchor_day, _days_in_month(ny, nm)))
+        elif freq == "YEARLY":
+            ny = cursor.year + interval
+            cursor = datetime.date(ny, start_date.month, min(anchor_day, _days_in_month(ny, start_date.month)))
+
+    return results
+
+
+def parse_ics_content(
+    raw_text: str,
+    win_start: datetime.date,
+    win_end: datetime.date,
+    tz: datetime.tzinfo,
+    feed_color: str = DEFAULT_EVENT_COLOR,
+) -> list[dict]:
+    lines = unfold_ics_lines(raw_text)
+    cal_name = "Google Calendar"
+    vevents_props: list[list[tuple[str, dict[str, str], str]]] = []
+    overridden_by_uid: dict[str, set[datetime.date]] = {}
+
+    in_event = False
+    props: list[tuple[str, dict[str, str], str]] = []
+
+    for line in lines:
+        upper = line.strip().upper()
+        if upper == "BEGIN:VEVENT":
+            in_event = True
+            props = []
+            continue
+        if upper == "END:VEVENT":
+            if in_event and len(vevents_props) < MAX_VEVENTS:
+                vevents_props.append(props)
+                uid_val = ""
+                rec_date: datetime.date | None = None
+                for p_name, p_params, p_val in props:
+                    if p_name == "UID":
+                        uid_val = clean_str(unescape_ics_text(p_val), 128)
+                    elif p_name == "RECURRENCE-ID":
+                        rec_d, _, _ = parse_ics_datetime(p_val, p_params, tz)
+                        if rec_d:
+                            rec_date = rec_d
+                if uid_val and rec_date:
+                    overridden_by_uid.setdefault(uid_val, set()).add(rec_date)
+            in_event = False
+            props = []
+            continue
+        if not in_event:
+            k, _, v = parse_ics_prop(line)
+            if k == "X-WR-CALNAME" and v.strip():
+                cal_name = clean_str(unescape_ics_text(v), 80)
+        else:
+            parsed_prop = parse_ics_prop(line)
+            if parsed_prop[0]:
+                props.append(parsed_prop)
+
+    events: list[dict] = []
+    for ev_props in vevents_props:
+        ev_list = build_ics_vevent(ev_props, cal_name, feed_color, win_start, win_end, tz, overridden_by_uid)
+        events.extend(ev_list)
+        if len(events) >= MAX_EVENTS:
+            break
+
+    return events[:MAX_EVENTS]
+
+
+def build_ics_vevent(
+    props: list[tuple[str, dict[str, str], str]],
+    cal_name: str,
+    feed_color: str,
+    win_start: datetime.date,
+    win_end: datetime.date,
+    tz: datetime.tzinfo,
+    overridden_by_uid: dict[str, set[datetime.date]] | None = None,
+) -> list[dict]:
+    prop_map: dict[str, tuple[dict[str, str], str]] = {}
+    exdates: set[datetime.date] = set()
+
+    for name, params, val in props:
+        if name == "EXDATE":
+            for part in val.split(","):
+                d, _, _ = parse_ics_datetime(part, params, tz)
+                if d:
+                    exdates.add(d)
+        else:
+            prop_map[name] = (params, val)
+
+    if prop_map.get("STATUS", ({}, ""))[1].strip().upper() == "CANCELLED":
+        return []
+
+    if "DTSTART" not in prop_map:
+        return []
+
+    dtstart_params, dtstart_val = prop_map["DTSTART"]
+    start_d, start_dt, all_day = parse_ics_datetime(dtstart_val, dtstart_params, tz)
+    if not start_d:
+        return []
+
+    end_d = start_d
+    end_dt = start_dt
+    if "DTEND" in prop_map:
+        dtend_params, dtend_val = prop_map["DTEND"]
+        ed, edt, _ = parse_ics_datetime(dtend_val, dtend_params, tz)
+        if ed:
+            end_d = ed
+        if edt:
+            end_dt = edt
+
+    if all_day:
+        if end_d > start_d:
+            end_d = end_d - datetime.timedelta(days=1)
+        span_days = max(0, (end_d - start_d).days)
+        start_time_str = ""
+        end_time_str = ""
+    else:
+        if not start_dt:
+            return []
+        if not end_dt or end_dt < start_dt:
+            end_dt = start_dt + datetime.timedelta(hours=1)
+        end_d = end_dt.date()
+        span_days = max(0, (end_d - start_d).days)
+        start_time_str = start_dt.strftime("%H:%M")
+        end_time_str = end_dt.strftime("%H:%M")
+
+    uid = clean_str(unescape_ics_text(prop_map.get("UID", ({}, ""))[1]), 128) or secrets.token_hex(8)
+    if overridden_by_uid and "RECURRENCE-ID" not in prop_map and uid in overridden_by_uid:
+        exdates = exdates | overridden_by_uid[uid]
+
+    title = clean_str(unescape_ics_text(prop_map.get("SUMMARY", ({}, "(Sem título)"))[1]), MAX_TITLE_LEN) or "(Sem título)"
+    location = clean_str(unescape_ics_text(prop_map.get("LOCATION", ({}, ""))[1]), MAX_LOC_LEN)
+    description = clean_str(unescape_ics_text(prop_map.get("DESCRIPTION", ({}, ""))[1]), MAX_DESC_LEN)
+    url = sanitize_url(unescape_ics_text(prop_map.get("URL", ({}, ""))[1]))
+
+    meet_link = ""
+    for candidate_text in (location, description, url):
+        m = re.search(r"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}", candidate_text)
+        if m:
+            meet_link = m.group(0)
+            break
+
+    rrule_str = prop_map.get("RRULE", ({}, ""))[1].strip()
+    if rrule_str:
+        occ_dates = expand_rrule_dates(rrule_str, start_d, win_start, win_end, exdates)
+    else:
+        if end_d < win_start or start_d > win_end or start_d in exdates:
+            occ_dates = []
+        else:
+            occ_dates = [start_d]
+
+    out: list[dict] = []
+    for occ_start in occ_dates:
+        occ_end = occ_start + datetime.timedelta(days=span_days)
+        occ_id = f"ics:{uid}:{occ_start.isoformat()}"
+        out.append({
+            "id": occ_id,
+            "remoteId": uid,
+            "calendarId": "ics",
+            "calendarName": cal_name,
+            "title": title,
+            "startDate": occ_start.isoformat(),
+            "endDate": occ_end.isoformat(),
+            "startTime": start_time_str,
+            "endTime": end_time_str,
+            "allDay": all_day,
+            "location": location,
+            "description": description,
+            "htmlLink": url,
+            "meetLink": meet_link,
+            "color": sanitize_color(feed_color),
+            "source": "ics",
+        })
+    return out
+
+
+def fetch_ics_feeds(
+    ics_urls: list[str],
+    win_start: datetime.date,
+    win_end: datetime.date,
+    tz: datetime.tzinfo,
+) -> list[dict]:
+    palette = ["#039be5", "#33b679", "#8e24aa", "#f6bf26", "#e67c73"]
+    all_events: list[dict] = []
+    for idx, raw_url in enumerate(ics_urls[:10]):
+        url = raw_url.strip()
+        if url.startswith("webcal://"):
+            url = "https://" + url[len("webcal://") :]
+        if not url.startswith("https://"):
+            continue
+        color = palette[idx % len(palette)]
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Omarchy-Clock-Calendar/2.0"},
+            method="GET",
+        )
+        with _HTTPS_OPENER.open(req, timeout=12) as resp:
+            raw_bytes = resp.read(MAX_HTTP_BYTES)
+        raw_text = raw_bytes.decode("utf-8", errors="replace")
+        all_events.extend(parse_ics_content(raw_text, win_start, win_end, tz, feed_color=color))
+    return all_events
+
+
+def load_local_events() -> list[dict]:
+    data = load_json(LOCAL_EVENTS_FILE, [])
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        start_date = clean_str(item.get("startDate", ""), 10)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", start_date):
+            continue
+        end_date = clean_str(item.get("endDate", start_date), 10)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", end_date) or end_date < start_date:
+            end_date = start_date
+        out.append({
+            "id": clean_str(item.get("id") or f"local:{secrets.token_hex(6)}", 128),
+            "remoteId": clean_str(item.get("remoteId", ""), 128),
+            "calendarId": clean_str(item.get("calendarId", "local"), 80),
+            "calendarName": clean_str(item.get("calendarName", "Agenda Local"), 80),
+            "title": clean_str(item.get("title") or "(Sem título)", MAX_TITLE_LEN),
+            "startDate": start_date,
+            "endDate": end_date,
+            "startTime": clean_str(item.get("startTime", ""), 5),
+            "endTime": clean_str(item.get("endTime", ""), 5),
+            "allDay": bool(item.get("allDay", False)),
+            "location": clean_str(item.get("location", ""), MAX_LOC_LEN),
+            "description": clean_str(item.get("description", ""), MAX_DESC_LEN),
+            "htmlLink": sanitize_url(item.get("htmlLink", "")),
+            "meetLink": sanitize_url(item.get("meetLink", "")),
+            "color": sanitize_color(item.get("color", "#33b679")),
+            "source": clean_str(item.get("source", "local"), 24),
+            "pendingSync": bool(item.get("pendingSync", False)),
+        })
+    return out
+
+
+def save_local_events(events: list[dict]) -> None:
+    atomic_write_json(LOCAL_EVENTS_FILE, events, mode=0o600)
+
+
+def create_google_oauth_event(access_token: str, ev: dict, tz: datetime.tzinfo) -> dict | None:
+    tz_name = getattr(tz, "key", None) or "UTC"
+    body: dict = {
+        "summary": ev["title"],
+    }
+    if ev.get("location"):
+        body["location"] = ev["location"]
+    if ev.get("description"):
+        body["description"] = ev["description"]
+
+    if ev.get("allDay"):
+        d_start = datetime.date.fromisoformat(ev["startDate"])
+        d_end = datetime.date.fromisoformat(ev.get("endDate") or ev["startDate"]) + datetime.timedelta(days=1)
+        body["start"] = {"date": d_start.isoformat()}
+        body["end"] = {"date": d_end.isoformat()}
+    else:
+        start_t = ev.get("startTime") or "09:00"
+        end_t = ev.get("endTime") or "10:00"
+        d_start = datetime.date.fromisoformat(ev["startDate"])
+        d_end = datetime.date.fromisoformat(ev.get("endDate") or ev["startDate"])
+        sh, sm = [int(x) for x in start_t.split(":")]
+        eh, em = [int(x) for x in end_t.split(":")]
+        dt_s = datetime.datetime(d_start.year, d_start.month, d_start.day, sh, sm, tzinfo=tz)
+        dt_e = datetime.datetime(d_end.year, d_end.month, d_end.day, eh, em, tzinfo=tz)
+        if dt_e <= dt_s:
+            dt_e = dt_s + datetime.timedelta(hours=1)
+        body["start"] = {"dateTime": dt_s.isoformat(), "timeZone": tz_name}
+        body["end"] = {"dateTime": dt_e.isoformat(), "timeZone": tz_name}
+
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    resp = google_api_request("POST", url, access_token, payload=body)
+    if resp:
+        return parse_google_event(resp, "Google Calendar", DEFAULT_EVENT_COLOR, "primary", tz)
+    return None
+
+
+def sync_all(days_back: int = 180, days_forward: int = 400) -> dict:
+    ensure_dirs()
+    cfg = load_config()
+    tz = local_tz()
+    today = datetime.datetime.now(tz).date()
+    win_start = today - datetime.timedelta(days=days_back)
+    win_end = today + datetime.timedelta(days=days_forward)
+
+    dismissed = set(cfg.get("dismissedIds", []))
+    local_events = load_local_events()
+    remote_events: list[dict] = []
+    source = "local"
+    last_error = ""
+
+    access_token = get_valid_access_token(cfg)
+    if access_token:
+        # Push any pending local events to Google Calendar first
+        remaining_local: list[dict] = []
+        for lev in local_events:
+            if lev.get("pendingSync"):
+                try:
+                    created = create_google_oauth_event(access_token, lev, tz)
+                    if created:
+                        continue
+                except Exception:
+                    pass
+            remaining_local.append(lev)
+        if len(remaining_local) != len(local_events):
+            local_events = remaining_local
+            save_local_events(local_events)
+
+        try:
+            remote_events.extend(fetch_google_oauth_events(access_token, win_start, win_end, tz))
+            source = "oauth"
+        except Exception as exc:
+            last_error = clean_str(str(exc), 160)
+
+    ics_urls = cfg.get("icsUrls", [])
+    if ics_urls:
+        try:
+            ics_ev = fetch_ics_feeds(ics_urls, win_start, win_end, tz)
+            remote_events.extend(ics_ev)
+            if source == "local":
+                source = "ics"
+        except Exception as exc:
+            if not last_error:
+                last_error = clean_str(str(exc), 160)
+
+    # Merge remote + local, respecting dismissedIds
+    merged_by_id: dict[str, dict] = {}
+    for ev in remote_events + local_events:
+        eid = ev.get("id", "")
+        if not eid or eid in dismissed:
+            continue
+        merged_by_id[eid] = ev
+
+    # If we had a network error and remote_events is empty, preserve previous cached remote events
+    if last_error and not remote_events and EVENTS_CACHE_FILE.is_file():
+        prev_cache = load_json(EVENTS_CACHE_FILE, {})
+        if isinstance(prev_cache, dict):
+            for prev_ev in prev_cache.get("events", []):
+                if isinstance(prev_ev, dict) and prev_ev.get("source") != "local":
+                    peid = prev_ev.get("id", "")
+                    if peid and peid not in dismissed and peid not in merged_by_id:
+                        merged_by_id[peid] = prev_ev
+
+    sorted_events = sorted(
+        merged_by_id.values(),
+        key=lambda e: (
+            e.get("startDate", ""),
+            0 if e.get("allDay") else 1,
+            e.get("startTime", "") or "00:00",
+            e.get("title", ""),
+        ),
+    )[:MAX_EVENTS]
+
+    now_dt = datetime.datetime.now(tz)
+    client_id, _ = get_oauth_client_config(cfg)
+    payload = {
+        "version": 1,
+        "syncedAt": now_dt.isoformat(timespec="seconds"),
+        "syncedAtShort": now_dt.strftime("%H:%M"),
+        "source": source,
+        "connected": source in ("oauth", "ics", "gcalcli"),
+        "icsUrl": ics_urls[0] if ics_urls else "",
+        "icsUrls": ics_urls,
+        "hasOAuthCredentials": bool(client_id),
+        "hasOAuthToken": bool(access_token),
+        "lastError": last_error,
+        "events": sorted_events,
+    }
+    atomic_write_json(EVENTS_CACHE_FILE, payload, mode=0o600)
+    return payload
+
+
+def rebuild_cache_fast(extra_remote: list[dict] | None = None) -> dict:
+    """Rebuilds EVENTS_CACHE_FILE immediately from cached remote events + local_events.json without network I/O."""
+    ensure_dirs()
+    cfg = load_config()
+    tz = local_tz()
+    dismissed = set(cfg.get("dismissedIds", []))
+    local_events = load_local_events()
+
+    prev_cache = load_json(EVENTS_CACHE_FILE, {})
+    if not isinstance(prev_cache, dict):
+        prev_cache = {}
+
+    cached_remote: list[dict] = []
+    for ev in prev_cache.get("events", []):
+        if isinstance(ev, dict) and ev.get("source") != "local":
+            cached_remote.append(ev)
+    if extra_remote:
+        cached_remote.extend(extra_remote)
+
+    merged_by_id: dict[str, dict] = {}
+    for ev in cached_remote + local_events:
+        eid = ev.get("id", "")
+        if not eid or eid in dismissed:
+            continue
+        merged_by_id[eid] = ev
+
+    sorted_events = sorted(
+        merged_by_id.values(),
+        key=lambda e: (
+            e.get("startDate", ""),
+            0 if e.get("allDay") else 1,
+            e.get("startTime", "") or "00:00",
+            e.get("title", ""),
+        ),
+    )[:MAX_EVENTS]
+
+    now_dt = datetime.datetime.now(tz)
+    ics_urls = cfg.get("icsUrls", [])
+    client_id, _ = get_oauth_client_config(cfg)
+    has_token = TOKEN_FILE.is_file()
+    source = str(prev_cache.get("source") or ("ics" if ics_urls else "local"))
+    if extra_remote:
+        source = "oauth"
+
+    payload = {
+        "version": 1,
+        "syncedAt": str(prev_cache.get("syncedAt") or now_dt.isoformat(timespec="seconds")),
+        "syncedAtShort": str(prev_cache.get("syncedAtShort") or now_dt.strftime("%H:%M")),
+        "source": source,
+        "connected": source in ("oauth", "ics", "gcalcli"),
+        "icsUrl": ics_urls[0] if ics_urls else "",
+        "icsUrls": ics_urls,
+        "hasOAuthCredentials": bool(client_id),
+        "hasOAuthToken": bool(has_token),
+        "lastError": str(prev_cache.get("lastError", "")),
+        "events": sorted_events,
+    }
+    atomic_write_json(EVENTS_CACHE_FILE, payload, mode=0o600)
+    return payload
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    title = clean_str(args.title, MAX_TITLE_LEN)
+    if not title:
+        print("Error: title is required", file=sys.stderr)
+        return 1
+    start_date = clean_str(args.date, 10)
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", start_date):
+        print("Error: invalid date (expected YYYY-MM-DD)", file=sys.stderr)
+        return 1
+    end_date = clean_str(args.end_date or start_date, 10)
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", end_date) or end_date < start_date:
+        end_date = start_date
+
+    all_day = bool(args.all_day)
+    start_time = "" if all_day else clean_str(args.start or "09:00", 5)
+    end_time = "" if all_day else clean_str(args.end or "10:00", 5)
+
+    if not all_day:
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", start_time):
+            start_time = "09:00"
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", end_time):
+            sh, sm = [int(x) for x in start_time.split(":")]
+            eh = (sh + 1) % 24
+            end_time = f"{eh:02d}:{sm:02d}"
+
+    location = clean_str(args.location or "", MAX_LOC_LEN)
+    description = clean_str(args.description or "", MAX_DESC_LEN)
+    meet_link = ""
+    if location.startswith("https://"):
+        meet_link = sanitize_url(location)
+    color = sanitize_color(args.color or "#039be5")
+
+    new_ev = {
+        "id": f"local:{secrets.token_hex(8)}",
+        "remoteId": "",
+        "calendarId": "local",
+        "calendarName": "Google Calendar",
+        "title": title,
+        "startDate": start_date,
+        "endDate": end_date,
+        "startTime": start_time,
+        "endTime": end_time,
+        "allDay": all_day,
+        "location": location,
+        "description": description,
+        "htmlLink": meet_link,
+        "meetLink": meet_link,
+        "color": color,
+        "source": "local",
+        "pendingSync": True,
+    }
+
+    cfg = load_config()
+    tz = local_tz()
+    access_token = get_valid_access_token(cfg)
+    created_remote = None
+    if access_token:
+        try:
+            created_remote = create_google_oauth_event(access_token, new_ev, tz)
+        except Exception:
+            created_remote = None
+
+    if not created_remote:
+        local_events = load_local_events()
+        local_events.append(new_ev)
+        save_local_events(local_events)
+        rebuild_cache_fast()
+    else:
+        rebuild_cache_fast(extra_remote=[created_remote])
+
+    return 0
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    event_id = clean_str(args.id, 128)
+    if not event_id:
+        return 1
+
+    cfg = load_config()
+    if event_id.startswith("local:"):
+        local_events = [e for e in load_local_events() if e.get("id") != event_id]
+        save_local_events(local_events)
+    elif event_id.startswith("gcal:"):
+        parts = event_id.split(":", 2)
+        if len(parts) == 3:
+            _, cal_id, remote_id = parts
+            access_token = get_valid_access_token(cfg)
+            if access_token:
+                encoded_cal = urllib.parse.quote(cal_id, safe="")
+                encoded_ev = urllib.parse.quote(remote_id, safe="")
+                url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events/{encoded_ev}"
+                try:
+                    google_api_request("DELETE", url, access_token)
+                except Exception:
+                    pass
+        dismissed = cfg.get("dismissedIds", [])
+        if event_id not in dismissed:
+            dismissed.append(event_id)
+            cfg["dismissedIds"] = dismissed[-500:]
+            save_config(cfg)
+    else:
+        dismissed = cfg.get("dismissedIds", [])
+        if event_id not in dismissed:
+            dismissed.append(event_id)
+            cfg["dismissedIds"] = dismissed[-500:]
+            save_config(cfg)
+
+    rebuild_cache_fast()
+    return 0
+
+
+def cmd_set_ics(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    cfg = load_config()
+    raw_url = (args.url or "").strip()
+    if not raw_url:
+        cfg["icsUrls"] = []
+    else:
+        urls = []
+        for part in re.split(r"[\s,]+", raw_url):
+            u = part.strip()
+            if u.startswith("webcal://"):
+                u = "https://" + u[len("webcal://") :]
+            if u.startswith("https://"):
+                urls.append(u)
+        if not urls:
+            print("Error: URL must start with https:// or webcal://", file=sys.stderr)
+            return 1
+        cfg["icsUrls"] = urls
+    save_config(cfg)
+    sync_all()
+    return 0
+
+
+def cmd_auth(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    cfg = load_config()
+    if args.credentials_file:
+        src = Path(args.credentials_file).expanduser()
+        if src.is_file():
+            shutil.copyfile(src, CREDENTIALS_FILE)
+            os.chmod(CREDENTIALS_FILE, 0o600)
+    if args.client_id and args.client_secret:
+        cfg["clientId"] = args.client_id.strip()
+        cfg["clientSecret"] = args.client_secret.strip()
+        save_config(cfg)
+
+    client_id, client_secret = get_oauth_client_config(cfg)
+    if not client_id:
+        print("=== Configuração OAuth2 do Google Calendar para o Omarchy ===")
+        print(f"Para autenticação OAuth2 bidirecional, salve o arquivo 'credentials.json'")
+        print(f"(OAuth 2.0 Client ID do tipo Desktop App no Google Cloud Console) em:")
+        print(f"  {CREDENTIALS_FILE}")
+        print("")
+        if sys.stdin.isatty():
+            cid = input("Ou cole seu Google OAuth Client ID (Enter para cancelar): ").strip()
+            if not cid:
+                return 1
+            csec = input("Cole seu Google OAuth Client Secret: ").strip()
+            cfg["clientId"] = cid
+            cfg["clientSecret"] = csec
+            save_config(cfg)
+            client_id, client_secret = cid, csec
+        else:
+            return 1
+
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    state_token = secrets.token_urlsafe(16)
+    auth_result: dict[str, str] = {}
+
+    class CallbackHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *log_args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if qs.get("state", [""])[0] != state_token:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Invalid state parameter.")
+                return
+            if "code" in qs:
+                auth_result["code"] = qs["code"][0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(
+                    "<html><body style='font-family:sans-serif;text-align:center;padding:40px;'>"
+                    "<h2>Google Calendar conectado ao Omarchy!</h2>"
+                    "<p>Você já pode fechar esta aba e voltar ao calendário na barra superior.</p>"
+                    "</body></html>".encode("utf-8")
+                )
+            else:
+                auth_result["error"] = qs.get("error", ["unknown"])[0]
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Authorization failed.")
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), CallbackHandler)
+    port = server.server_port
+    redirect_uri = f"http://127.0.0.1:{port}/callback"
+
+    auth_params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/calendar",
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state_token,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(auth_params)
+    print(f"Abrindo navegador para autenticação Google Calendar:\n{auth_url}")
+    try:
+        subprocess.Popen(["xdg-open", auth_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    server.timeout = 180
+    server.handle_request()
+    server.server_close()
+
+    code = auth_result.get("code", "")
+    if not code:
+        print(f"Erro na autorização OAuth2: {auth_result.get('error', 'timeout')}", file=sys.stderr)
+        return 1
+
+    token_payload = {
+        "client_id": client_id,
+        "code": code,
+        "code_verifier": verifier,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }
+    if client_secret:
+        token_payload["client_secret"] = client_secret
+
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=urllib.parse.urlencode(token_payload).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        token_resp = json.loads(resp.read(MAX_HTTP_BYTES).decode("utf-8"))
+
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    expires_in = int(token_resp.get("expires_in", 3600) or 3600)
+    token_store = {
+        "access_token": token_resp.get("access_token", ""),
+        "refresh_token": token_resp.get("refresh_token", ""),
+        "expires_at": now + expires_in,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    atomic_write_json(TOKEN_FILE, token_store, mode=0o600)
+    print("Autenticação concluída! Sincronizando eventos...")
+    sync_all()
+    print("Sincronização concluída com sucesso!")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Omarchy Google Calendar Sync & Schedule CLI")
+    sub = parser.add_subparsers(dest="command")
+
+    p_sync = sub.add_parser("sync", help="Synchronize Google Calendar / iCal / local events")
+    p_sync.add_argument("--days-back", type=int, default=180)
+    p_sync.add_argument("--days-forward", type=int, default=400)
+    p_sync.add_argument("--quiet", action="store_true")
+
+    p_add = sub.add_parser("add", help="Add a calendar event (Google Calendar + Local)")
+    p_add.add_argument("--title", required=True)
+    p_add.add_argument("--date", required=True, help="YYYY-MM-DD")
+    p_add.add_argument("--end-date", default="")
+    p_add.add_argument("--start", default="09:00", help="HH:MM")
+    p_add.add_argument("--end", default="10:00", help="HH:MM")
+    p_add.add_argument("--all-day", action="store_true")
+    p_add.add_argument("--location", default="")
+    p_add.add_argument("--description", default="")
+    p_add.add_argument("--color", default=DEFAULT_EVENT_COLOR)
+
+    p_del = sub.add_parser("delete", help="Delete a calendar event")
+    p_del.add_argument("--id", required=True)
+
+    p_ics = sub.add_parser("set-ics", help="Configure Google Calendar secret iCal (.ics) URL")
+    p_ics.add_argument("url", nargs="?", default="")
+
+    p_auth = sub.add_parser("auth", help="Authenticate with Google Calendar via OAuth2")
+    p_auth.add_argument("--credentials-file", default="")
+    p_auth.add_argument("--client-id", default="")
+    p_auth.add_argument("--client-secret", default="")
+
+    sub.add_parser("status", help="Show current sync status and event count")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    cmd = args.command or "sync"
+
+    if cmd == "sync":
+        res = sync_all(
+            days_back=getattr(args, "days_back", 180),
+            days_forward=getattr(args, "days_forward", 400),
+        )
+        if not getattr(args, "quiet", False):
+            print(json.dumps({"source": res["source"], "events": len(res["events"]), "syncedAt": res["syncedAt"]}))
+        return 0
+    if cmd == "add":
+        return cmd_add(args)
+    if cmd == "delete":
+        return cmd_delete(args)
+    if cmd == "set-ics":
+        return cmd_set_ics(args)
+    if cmd == "auth":
+        return cmd_auth(args)
+    if cmd == "status":
+        if not EVENTS_CACHE_FILE.is_file():
+            sync_all()
+        cache = load_json(EVENTS_CACHE_FILE, {})
+        if isinstance(cache, dict):
+            summary = {
+                "source": cache.get("source", "local"),
+                "connected": cache.get("connected", False),
+                "syncedAt": cache.get("syncedAt", ""),
+                "eventCount": len(cache.get("events", [])),
+                "hasOAuthCredentials": cache.get("hasOAuthCredentials", False),
+                "hasOAuthToken": cache.get("hasOAuthToken", False),
+                "icsUrl": cache.get("icsUrl", ""),
+                "lastError": cache.get("lastError", ""),
+            }
+            print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

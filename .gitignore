@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# State and local caches
+.local_events.json
+events.json
+token.json
+credentials.json
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.bak*
