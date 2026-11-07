@@ -878,58 +878,115 @@ Ui.Panel {
               y: Style.space(4)
               anchors.horizontalCenter: parent.horizontalCenter
               width: root.fullGridWidth
-              height: Style.space(28)
+              height: Style.space(26)
 
-              Row {
+              // Left Group: Segmented View Mode Switcher (Day | Week | Month | Year)
+              Rectangle {
+                id: modeSegmentContainer
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(4)
+                height: Style.space(26)
+                width: modeSegmentRow.implicitWidth + Style.space(4)
+                radius: Style.cornerRadius
+                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.05)
+                border.width: Style.spacing.hairline
+                border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.14)
 
-                Repeater {
-                  model: [
-                    { mode: "day", labelKey: "view.day", tipKey: "view.dayTooltip" },
-                    { mode: "week", labelKey: "view.week", tipKey: "view.weekTooltip" },
-                    { mode: "month", labelKey: "view.month", tipKey: "view.monthTooltip" },
-                    { mode: "year", labelKey: "view.year", tipKey: "view.yearTooltip" }
-                  ]
+                Row {
+                  id: modeSegmentRow
+                  anchors.centerIn: parent
+                  spacing: 0
 
-                  Button {
-                    required property var modelData
-                    text: tr.t(modelData.labelKey)
-                    tooltipText: tr.t(modelData.tipKey)
-                    selected: root.viewMode === modelData.mode
-                    bordered: true
-                    foreground: root.contentForeground
-                    accent: Commons.Color.accent
-                    fontFamily: root.contentFontFamily
-                    fontSize: Style.font.bodySmall
-                    horizontalPadding: Style.space(10)
-                    verticalPadding: Style.space(4)
-                    onClicked: root.setViewMode(modelData.mode)
+                  Repeater {
+                    id: segRepeater
+                    model: [
+                      { mode: "day", labelKey: "view.day", tipKey: "view.dayTooltip" },
+                      { mode: "week", labelKey: "view.week", tipKey: "view.weekTooltip" },
+                      { mode: "month", labelKey: "view.month", tipKey: "view.monthTooltip" },
+                      { mode: "year", labelKey: "view.year", tipKey: "view.yearTooltip" }
+                    ]
+
+                    Rectangle {
+                      id: segRect
+                      required property var modelData
+                      required property int index
+                      readonly property bool isActive: root.viewMode === modelData.mode
+                      width: Style.space(40)
+                      height: Style.space(22)
+                      radius: Math.max(2, Style.cornerRadius - 2)
+                      color: isActive
+                        ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.18)
+                        : (segMouse.containsMouse
+                          ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
+                          : "transparent")
+                      border.width: isActive ? Style.spacing.hairline : 0
+                      border.color: Commons.Color.accent
+
+                      // Subtle divider line between inactive segments
+                      Rectangle {
+                        visible: segRect.index > 0 && !segRect.isActive && (root.viewMode !== segRepeater.model[segRect.index - 1].mode)
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.spacing.hairline
+                        height: Style.space(12)
+                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.15)
+                      }
+
+                      Text {
+                        id: segLabel
+                        anchors.centerIn: parent
+                        text: tr.t(modelData.labelKey)
+                        color: isActive
+                          ? Commons.Color.accent
+                          : (segMouse.containsMouse ? root.contentForeground : Qt.darker(root.contentForeground, 1.4))
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: isActive
+                      }
+
+                      MouseArea {
+                        id: segMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.setViewMode(modelData.mode)
+
+                        PanelToolTip {
+                          visible: segMouse.containsMouse
+                          text: tr.t(modelData.tipKey)
+                          fontFamily: root.contentFontFamily
+                        }
+                      }
+                    }
                   }
                 }
               }
 
+              // Right Group: Standardized Action Toolbar (Today | + Event | Divider | Sync | Search | Settings)
               Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(4)
 
                 Button {
+                  id: todayBtn
+                  height: Style.space(26)
                   text: tr.t("nav.today")
                   tooltipText: tr.t("nav.goToToday")
-                  selected: root.viewingCurrentContext
                   bordered: true
-                  foreground: root.contentForeground
+                  opacity: root.viewingCurrentContext ? 0.65 : 1.0
+                  foreground: root.viewingCurrentContext ? root.contentForeground : Commons.Color.accent
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
-                  fontSize: Style.font.bodySmall
+                  fontSize: Style.font.caption
                   horizontalPadding: Style.space(8)
                   verticalPadding: Style.space(4)
                   onClicked: root.goToToday()
                 }
 
                 Button {
+                  id: addEventBtn
+                  height: Style.space(26)
                   text: tr.t("events.addShort")
                   tooltipText: tr.t("events.add")
                   selected: root.addingEvent
@@ -937,7 +994,7 @@ Ui.Panel {
                   foreground: root.contentForeground
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
-                  fontSize: Style.font.bodySmall
+                  fontSize: Style.font.caption
                   horizontalPadding: Style.space(8)
                   verticalPadding: Style.space(4)
                   onClicked: {
@@ -946,7 +1003,19 @@ Ui.Panel {
                   }
                 }
 
+                // Subtle vertical divider between actions and utility tools
+                Rectangle {
+                  width: Style.spacing.hairline
+                  height: Style.space(16)
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.16)
+                }
+
                 Button {
+                  width: Style.space(26)
+                  height: Style.space(26)
+                  horizontalPadding: 0
+                  verticalPadding: 0
                   iconText: "󰑐"
                   iconSpinning: root.syncing
                   tooltipText: root.syncing ? tr.t("sync.syncing") : tr.t("sync.button")
@@ -954,13 +1023,15 @@ Ui.Panel {
                   foreground: root.contentForeground
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
-                  fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(8)
-                  verticalPadding: Style.space(4)
+                  fontSize: Style.font.caption
                   onClicked: root.triggerManualSync()
                 }
 
                 Button {
+                  width: Style.space(26)
+                  height: Style.space(26)
+                  horizontalPadding: 0
+                  verticalPadding: 0
                   iconText: "󰍉"
                   selected: root.showingSearch
                   tooltipText: tr.t("search.button")
@@ -968,13 +1039,15 @@ Ui.Panel {
                   foreground: root.contentForeground
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
-                  fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(8)
-                  verticalPadding: Style.space(4)
+                  fontSize: Style.font.caption
                   onClicked: root.toggleSearch()
                 }
 
                 Button {
+                  width: Style.space(26)
+                  height: Style.space(26)
+                  horizontalPadding: 0
+                  verticalPadding: 0
                   iconText: "󰒓"
                   selected: root.showingSyncSettings
                   tooltipText: tr.t("sync.settings")
@@ -982,9 +1055,7 @@ Ui.Panel {
                   foreground: root.contentForeground
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
-                  fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(8)
-                  verticalPadding: Style.space(4)
+                  fontSize: Style.font.caption
                   onClicked: root.toggleSyncSettings()
                 }
               }
