@@ -2169,7 +2169,50 @@ Ui.Panel {
               id: yearViewCol
               anchors.horizontalCenter: parent.horizontalCenter
               width: root.fullGridWidth
-              spacing: Style.space(8)
+              spacing: Style.space(6)
+
+              // Year stepper bar (top of year grid)
+              Item {
+                width: parent.width
+                height: yearNavLabel.implicitHeight + Style.space(8)
+
+                Text {
+                  id: yearNavLabel
+                  textFormat: Text.PlainText
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(140)
+                  horizontalAlignment: Text.AlignHCenter
+                  text: Commons.I18n.formatNumber(root.viewYear)
+                  color: Qt.darker(root.contentForeground, 1.3)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  font.letterSpacing: 1
+                  font.bold: true
+                }
+
+                PanelActionButton {
+                  anchors.left: parent.left
+                  anchors.leftMargin: -Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  iconText: Commons.I18n.rightToLeft ? "󰅂" : "󰅁"
+                  tooltipText: tr.t("nav.previousYear")
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.moveYear(-1)
+                }
+
+                PanelActionButton {
+                  anchors.right: parent.right
+                  anchors.rightMargin: -Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  iconText: Commons.I18n.rightToLeft ? "󰅁" : "󰅂"
+                  tooltipText: tr.t("nav.nextYear")
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.moveYear(1)
+                }
+              }
 
               Grid {
                 id: yearGrid
@@ -2185,10 +2228,10 @@ Ui.Panel {
                     required property var modelData
                     readonly property int cardWidth: Math.floor((root.fullGridWidth - 2 * Style.space(8)) / 3)
                     readonly property int miniCellW: Math.floor((cardWidth - Style.space(12)) / 7)
-                    readonly property int miniCellH: Style.space(15)
+                    readonly property int miniCellH: Style.space(11)
 
                     width: cardWidth
-                    height: miniMonthCol.implicitHeight + Style.space(10)
+                    height: miniMonthCol.implicitHeight + Style.space(6)
                     radius: Style.cornerRadius
                     color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.04)
                     border.width: (modelData.month === root.today.getMonth() && modelData.year === root.today.getFullYear())
@@ -2201,8 +2244,8 @@ Ui.Panel {
                       anchors.left: parent.left
                       anchors.right: parent.right
                       anchors.top: parent.top
-                      anchors.margins: Style.space(6)
-                      spacing: Style.space(3)
+                      anchors.margins: Style.space(4)
+                      spacing: Style.space(1)
 
                       // Mini-month header (clicking jumps to that Month view)
                       Rectangle {
@@ -2308,49 +2351,6 @@ Ui.Panel {
                       }
                     }
                   }
-                }
-              }
-
-              // Year stepper bar
-              Item {
-                width: parent.width
-                height: yearNavLabel.implicitHeight + Style.space(10)
-
-                Text {
-                  id: yearNavLabel
-                  textFormat: Text.PlainText
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: Style.space(140)
-                  horizontalAlignment: Text.AlignHCenter
-                  text: Commons.I18n.formatNumber(root.viewYear)
-                  color: Qt.darker(root.contentForeground, 1.4)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
-                  font.letterSpacing: 1
-                  font.bold: true
-                }
-
-                PanelActionButton {
-                  anchors.left: parent.left
-                  anchors.leftMargin: -Style.space(8)
-                  anchors.verticalCenter: parent.verticalCenter
-                  iconText: Commons.I18n.rightToLeft ? "󰅂" : "󰅁"
-                  tooltipText: tr.t("nav.previousYear")
-                  foreground: root.contentForeground
-                  fontFamily: root.contentFontFamily
-                  onClicked: root.moveYear(-1)
-                }
-
-                PanelActionButton {
-                  anchors.right: parent.right
-                  anchors.rightMargin: -Style.space(8)
-                  anchors.verticalCenter: parent.verticalCenter
-                  iconText: Commons.I18n.rightToLeft ? "󰅁" : "󰅂"
-                  tooltipText: tr.t("nav.nextYear")
-                  foreground: root.contentForeground
-                  fontFamily: root.contentFontFamily
-                  onClicked: root.moveYear(1)
                 }
               }
             }
