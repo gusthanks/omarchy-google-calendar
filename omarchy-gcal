@@ -1391,11 +1391,18 @@ def cmd_auth(args: argparse.Namespace) -> int:
         save_config(cfg)
 
     client_id, client_secret = get_oauth_client_config(cfg)
-    if not client_id and not CREDENTIALS_FILE.is_file():
-        downloads_dir = HOME / "Downloads"
-        candidates = sorted(downloads_dir.glob("client_secret_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if candidates:
-            newest = candidates[0]
+    downloads_dir = HOME / "Downloads"
+    candidates = sorted(downloads_dir.glob("client_secret_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if candidates:
+        newest = candidates[0]
+        need_copy = not CREDENTIALS_FILE.is_file()
+        if not need_copy:
+            need_copy = newest.stat().st_mtime > CREDENTIALS_FILE.stat().st_mtime
+        if not need_copy:
+            current_id, _ = get_oauth_client_config(cfg)
+            if not current_id or "auto_id" in current_id:
+                need_copy = True
+        if need_copy:
             print(f"Detectado arquivo de credenciais mais recente em Downloads: {newest.name}")
             shutil.copyfile(newest, CREDENTIALS_FILE)
             os.chmod(CREDENTIALS_FILE, 0o600)

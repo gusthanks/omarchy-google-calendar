@@ -373,8 +373,9 @@ END:VCALENDAR"""
                 "client_secret": "auto_sec_456"
             }
         }))
+        temp_cred = Path(self.temp_dir.name) / "config" / "credentials.json"
 
-        with patch.object(gcal, "HOME", Path(self.temp_dir.name)):
+        with patch.object(gcal, "CREDENTIALS_FILE", temp_cred), patch.object(gcal, "HOME", Path(self.temp_dir.name)):
             cfg = {}
             # Before copying, get_oauth_client_config returns empty
             cid, csec = gcal.get_oauth_client_config(cfg)
