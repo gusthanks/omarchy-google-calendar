@@ -22,13 +22,13 @@
 
 <p align="center">
   <b>Week View (Semana)</b><br>
-  <i>7-day columns side-by-side showing scheduled events across the week</i><br>
+  <i>7-day continuous grid with proportional event blocks and live current time indicator</i><br>
   <img src="assets/view-week.png" alt="Week View" width="85%" />
 </p>
 
 <p align="center">
   <b>Day View (Dia)</b><br>
-  <i>Hour-by-hour timeline schedule with current time indicator</i><br>
+  <i>Continuous 24h timeline schedule with proportional event blocks, current time line, and drag-to-resize handles</i><br>
   <img src="assets/view-day.png" alt="Day View" width="85%" />
 </p>
 
@@ -46,11 +46,15 @@
   - **Quick iCal (.ics) Link:** Connect in 30 seconds with your Google Calendar secret iCal address (no OAuth or cloud setup needed).
   - **Google Cloud OAuth2:** Full two-way sync (create, edit, and delete events directly from Omarchy).
 - 🗓️ **4 Rich View Modes:**
-  - **Day:** Hour-by-hour timeline with current time indicator and event cards.
-  - **Week:** 7-day columns side-by-side with scheduled events.
-  - **Month:** Classic Omarchy calendar grid enriched with event badges and selected day agenda.
-  - **Year:** 12-month bird's-eye view showing annual event distribution.
+  - **Day:** Continuous 24h timeline with proportional duration blocks, live "Now" indicator, and drag-to-resize handles on event borders.
+  - **Week:** 7-day continuous grid with proportional event blocks placed in their correct hourly positions.
+  - **Month:** Classic Omarchy calendar grid enriched with event badges, dots, and selected day agenda.
+  - **Year:** 12-month bird's-eye view showing annual event distribution and counters.
+- 🎯 **Drag & Double-Click Creation:** Click and drag directly on any time slot in Day or Week view to draw an event with 15-minute snap, opening the quick options drawer upon release. Double-click anywhere to instantly create a 1-hour slot.
+- 🎛️ **Segmented Capsule & Action Toolbar:** Clean segmented control (`Day | Week | Month | Year`) separated from standardized actions (`Today`, `+ Event`, `Sync`, `Search`, `Settings`).
+- ↔️ **Drag-to-Resize Events:** Drag the top or bottom edges of any event card to adjust start time or duration directly with live 15-minute feedback.
 - ⚡ **Instant Event Creation:** Fast inline `+ Event` drawer with keyboard focus (`N` or `+`). Works even offline as a local agenda!
+- 🔍 **Real-Time Event Search:** Press `/` or click search to instantly filter upcoming and historical events across all your calendars.
 - 🔔 **Desktop & Bar Notifications:** Native desktop reminder notification 10 minutes before your meetings, plus live upcoming indicator directly beside the clock.
 - ⌨️ **Keyboard & Vim Driven:** Full keyboard navigation (`1`–`4`, `[` / `]`, Vim `h`/`j`/`k`/`l`, `T`, `N`, `R`, `S`, `Esc`).
 - 🖱️ **Interactive Event Cards:** Single click to open Google Meet/Zoom links directly; double click to inspect the day's full agenda.
