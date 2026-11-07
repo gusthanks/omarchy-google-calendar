@@ -2528,13 +2528,15 @@ Ui.Panel {
                               width: miniCellW
                               height: miniCellH
                               radius: Math.max(2, Style.cornerRadius / 2)
-                              color: modelData.today
-                                ? Commons.Color.accent
-                                : (modelData.selected
-                                  ? Style.selectedFillFor(root.contentForeground, Commons.Color.accent)
-                                  : (modelData.hasEvents
-                                    ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18)
-                                    : "transparent"))
+                              color: !modelData.inMonth
+                                ? "transparent"
+                                : (modelData.today
+                                  ? Commons.Color.accent
+                                  : (modelData.selected
+                                    ? Style.selectedFillFor(root.contentForeground, Commons.Color.accent)
+                                    : (modelData.hasEvents
+                                      ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18)
+                                      : "transparent")))
 
                               Text {
                                 textFormat: Text.PlainText

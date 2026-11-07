@@ -249,3 +249,35 @@ test("quickEvent validation", () => {
   assert.equal(good.startTime, "14:00");
   assert.equal(good.endTime, "15:00");
 });
+
+test("yearViewModel suppresses today and selected for days outside the month", () => {
+  // 2026-11-07 is today. In October (month index 9), November 7 falls in week 6.
+  const yearData = Model.yearViewModel(2026, 0, "2026-11-07", "2026-11-07", {});
+  assert.equal(yearData.length, 12);
+
+  const october = yearData[9];
+  assert.equal(october.month, 9);
+
+  // In October, all days with inMonth: false must have today: false and selected: false
+  for (const week of october.weeks) {
+    for (const day of week.days) {
+      if (!day.inMonth) {
+        assert.equal(day.today, false, `Leading/trailing day ${day.key} in October must not be marked today`);
+        assert.equal(day.selected, false, `Leading/trailing day ${day.key} in October must not be marked selected`);
+      }
+    }
+  }
+
+  // In November (month index 10), day 7 has inMonth: true and today: true
+  const november = yearData[10];
+  let foundToday = false;
+  for (const week of november.weeks) {
+    for (const day of week.days) {
+      if (day.inMonth && day.day === 7) {
+        assert.equal(day.today, true);
+        foundToday = true;
+      }
+    }
+  }
+  assert.equal(foundToday, true);
+});

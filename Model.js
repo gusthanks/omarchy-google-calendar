@@ -815,10 +815,10 @@ function yearViewModel(year, weekStart, todayKey, selectedKey, eventsByDate) {
           weekday: cell.weekday,
           inMonth: cell.inMonth,
           weekend: cell.weekend,
-          today: cell.today,
-          selected: cell.key === sel,
+          today: cell.inMonth && cell.today,
+          selected: cell.inMonth && (cell.key === sel),
           eventCount: evs.length,
-          hasEvents: evs.length > 0,
+          hasEvents: cell.inMonth && (evs.length > 0),
           primaryColor: evs.length > 0 ? evs[0].color : ""
         })
       }
