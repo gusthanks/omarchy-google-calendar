@@ -44,6 +44,7 @@ Ui.Panel {
 
   readonly property string viewMode: Model.normalizeViewMode(setting("defaultViewMode", "month"))
   readonly property bool autoSyncEnabled: setting("autoSync", true) !== false
+  readonly property bool showBarEventBadge: (settings && "showBarEventBadge" in settings) ? Boolean(settings.showBarEventBadge) : false
   readonly property int syncIntervalMinutes: {
     var raw = Number(setting("syncIntervalMinutes", 10))
     if (isNaN(raw) || raw < 1) return 10
@@ -74,6 +75,13 @@ Ui.Panel {
   property bool syncing: false
   property bool addingEvent: false
   property bool newEventAllDay: false
+  property bool newEventAddMeet: false
+  property string draftDateKey: ""
+  property int draftStartMinutes: 9 * 60
+  property int draftEndMinutes: 10 * 60
+  property string newEventTitleText: ""
+  property string newEventLocationText: ""
+  property string newEventDescriptionText: ""
   property bool showingSyncSettings: false
   property bool showingSearch: false
   property string searchQuery: ""
@@ -146,12 +154,12 @@ Ui.Panel {
   readonly property color contentForeground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
-  readonly property int cellWidth: Style.space(52)
-  readonly property int cellHeight: Style.space(34)
-  readonly property int cellSpacing: Style.space(2)
+  readonly property int fullGridWidth: Style.space(556)
   readonly property int weekColumnWidth: Style.space(32)
-  readonly property int gutterWidth: Style.space(14)
-  readonly property int fullGridWidth: weekColumnWidth + cellSpacing + gutterWidth + cellSpacing + 7 * cellWidth + 6 * cellSpacing
+  readonly property int gutterWidth: Style.space(12)
+  readonly property int cellSpacing: Style.space(2)
+  readonly property int cellWidth: Math.floor((fullGridWidth - weekColumnWidth - gutterWidth - 8 * cellSpacing) / 7)
+  readonly property int cellHeight: Style.space(34)
 
   // ---- Panel Lifecycle & Navigation
   function open() {
@@ -379,27 +387,35 @@ Ui.Panel {
 
   function startAddingEventWithRange(dateKey, startTimeStr, endTimeStr) {
     root.showingSyncSettings = false
-    root.addingEvent = true
+    root.showingSearch = false
     root.newEventAllDay = false
+    root.newEventAddMeet = false
+    root.draftDateKey = dateKey || root.selectedKey
     if (dateKey) {
       var p = Model.parseDateKey(dateKey)
       if (p) root.selectDate(p.year, p.month, p.day)
     }
+    var sm = Model.parseMinutes(startTimeStr || "09:00")
+    if (sm < 0) sm = 9 * 60
+    var em = Model.parseMinutes(endTimeStr || "10:00")
+    if (em <= sm) em = Math.min(1440, sm + 60)
+    root.draftStartMinutes = sm
+    root.draftEndMinutes = em
+    root.newEventTitleText = ""
+    root.newEventLocationText = ""
+    root.newEventDescriptionText = ""
+    root.addingEvent = true
     Qt.callLater(function() {
       var content = panel.loadedContent
-      if (!content) return
-      content.eventTitleField.text = ""
-      content.eventDateField.text = dateKey || root.selectedKey
-      content.eventStartField.text = startTimeStr || "09:00"
-      content.eventEndField.text = endTimeStr || "10:00"
-      content.eventLocationField.text = ""
-      content.eventDescriptionField.text = ""
-      content.eventTitleField.forceActiveFocus()
+      if (content && content.eventTitleField) {
+        content.eventTitleField.forceActiveFocus()
+      }
     })
   }
 
   function cancelAddingEvent() {
     root.addingEvent = false
+    root.newEventAddMeet = false
     Qt.callLater(function() { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
   }
 
@@ -420,21 +436,19 @@ Ui.Panel {
   }
 
   function commitNewEvent() {
-    var content = panel.loadedContent
-    if (!content) return
+    var rawTitle = root.newEventTitleText.trim()
+    var title = rawTitle !== "" ? rawTitle : "(Sem título)"
     var validated = Model.validateQuickEvent({
-      title: content.eventTitleField.text,
-      dateKey: content.eventDateField.text || root.selectedKey,
-      startTime: content.eventStartField.text,
-      endTime: content.eventEndField.text,
+      title: title,
+      dateKey: root.draftDateKey || root.selectedKey,
+      startTime: Model.formatMinutes(root.draftStartMinutes),
+      endTime: Model.formatMinutes(root.draftEndMinutes),
       allDay: root.newEventAllDay,
-      location: content.eventLocationField.text,
-      description: content.eventDescriptionField.text
+      location: root.newEventLocationText,
+      description: root.newEventDescriptionText,
+      addMeet: root.newEventAddMeet
     })
-    if (!validated.valid) {
-      content.eventTitleField.forceActiveFocus()
-      return
-    }
+    if (!validated.valid) return
     var cmd = [
       root.gcalBinPath, "add",
       "--title", validated.title,
@@ -450,6 +464,9 @@ Ui.Panel {
     }
     if (validated.description !== "") {
       cmd.push("--description", validated.description)
+    }
+    if (validated.addMeet) {
+      cmd.push("--add-meet")
     }
     actionProc.command = cmd
     actionProc.running = true
@@ -548,12 +565,12 @@ Ui.Panel {
       id: keyCatcher
       property alias bornField: bornField
       property alias expectancyField: expectancyField
-      property alias eventTitleField: eventTitleField
-      property alias eventDateField: eventDateField
-      property alias eventStartField: eventStartField
-      property alias eventEndField: eventEndField
-      property alias eventLocationField: eventLocationField
-      property alias eventDescriptionField: eventDescriptionField
+      property alias eventTitleField: eventTitleInput
+      property alias eventDateField: eventDateInput
+      property alias eventStartField: eventStartInput
+      property alias eventEndField: eventEndInput
+      property alias eventLocationField: eventLocationInput
+      property alias eventDescriptionField: eventDescriptionInput
       property alias icsUrlField: icsUrlField
       property alias searchField: searchField
 
@@ -561,12 +578,12 @@ Ui.Panel {
       anchors.fill: parent
       blocked: bornField.activeFocus
         || expectancyField.activeFocus
-        || eventTitleField.activeFocus
-        || eventDateField.activeFocus
-        || eventStartField.activeFocus
-        || eventEndField.activeFocus
-        || eventLocationField.activeFocus
-        || eventDescriptionField.activeFocus
+        || eventTitleInput.activeFocus
+        || eventDateInput.activeFocus
+        || eventStartInput.activeFocus
+        || eventEndInput.activeFocus
+        || eventLocationInput.activeFocus
+        || eventDescriptionInput.activeFocus
         || icsUrlField.activeFocus
         || searchField.activeFocus
 
@@ -1067,6 +1084,21 @@ Ui.Panel {
                   fontSize: Style.font.caption
                   onClicked: root.toggleSyncSettings()
                 }
+
+                Button {
+                  width: Style.space(26)
+                  height: Style.space(26)
+                  horizontalPadding: 0
+                  verticalPadding: 0
+                  iconText: "󰊭"
+                  tooltipText: tr.t("action.openWeb")
+                  bordered: true
+                  foreground: root.contentForeground
+                  accent: Commons.Color.accent
+                  fontFamily: root.contentFontFamily
+                  fontSize: Style.font.caption
+                  onClicked: root.openExternalUrl("https://calendar.google.com/calendar/u/0/r")
+                }
               }
             }
           }
@@ -1404,6 +1436,47 @@ Ui.Panel {
                   width: parent.width
                   spacing: Style.space(8)
 
+                  Text {
+                    textFormat: Text.PlainText
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - barBadgeToggleBtn.width - Style.space(8)
+                    wrapMode: Text.WordWrap
+                    text: tr.t("sync.showBarEventBadge")
+                    color: Qt.darker(root.contentForeground, 1.5)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  Button {
+                    id: barBadgeToggleBtn
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.showBarEventBadge ? tr.t("sync.autoSyncOn") : tr.t("sync.autoSyncOff")
+                    selected: root.showBarEventBadge
+                    bordered: true
+                    foreground: root.contentForeground
+                    accent: Commons.Color.accent
+                    fontFamily: root.contentFontFamily
+                    fontSize: Style.font.bodySmall
+                    horizontalPadding: Style.space(8)
+                    verticalPadding: Style.space(4)
+                    onClicked: {
+                      root.persistSettings({ showBarEventBadge: !root.showBarEventBadge })
+                      icsUrlField.forceActiveFocus()
+                    }
+                  }
+                }
+
+                Rectangle {
+                  width: parent.width
+                  height: Style.spacing.hairline
+                  color: root.contentForeground
+                  opacity: 0.12
+                }
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+
                   Column {
                     width: parent.width - oauthBtn.width - closeCfgBtn.width - Style.space(16)
                     spacing: Style.space(2)
@@ -1461,194 +1534,7 @@ Ui.Panel {
             }
           }
 
-          // ---- Quick-Add Event Drawer (when + Evento is active)
-          Item {
-            visible: root.addingEvent
-            width: parent.width
-            height: visible ? addEventCard.height + Style.space(4) : 0
 
-            BorderSurface {
-              id: addEventCard
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: root.fullGridWidth
-              height: addEventCol.implicitHeight + Style.space(20)
-              radius: Style.cornerRadius
-              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
-              borderSpec: Border.controlSpec("normal", root.contentForeground, Commons.Color.accent)
-
-              Column {
-                id: addEventCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: Style.space(10)
-                spacing: Style.space(6)
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: tr.t("form.newEvent")
-                  color: Qt.darker(root.contentForeground, 1.5)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1
-                  font.bold: true
-                }
-
-                TextField {
-                  id: eventTitleField
-                  width: parent.width
-                  placeholderText: tr.t("form.titlePlaceholder")
-                  foreground: root.contentForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  verticalPadding: Style.space(4)
-                  Keys.onPressed: function(event) {
-                    root.handleEventFormKey(event, eventDescriptionField, eventDateField)
-                  }
-                }
-
-                Row {
-                  width: parent.width
-                  spacing: Style.space(6)
-
-                  TextField {
-                    id: eventDateField
-                    width: Style.space(106)
-                    placeholderText: tr.t("form.datePlaceholder")
-                    foreground: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    verticalPadding: Style.space(4)
-                    Keys.onPressed: function(event) {
-                      root.handleEventFormKey(
-                        event,
-                        eventTitleField,
-                        root.newEventAllDay ? eventLocationField : eventStartField
-                      )
-                    }
-                  }
-
-                  Button {
-                    text: tr.t("form.allDay")
-                    selected: root.newEventAllDay
-                    bordered: true
-                    foreground: root.contentForeground
-                    accent: Commons.Color.accent
-                    fontFamily: root.contentFontFamily
-                    fontSize: Style.font.bodySmall
-                    horizontalPadding: Style.space(8)
-                    verticalPadding: Style.space(4)
-                    anchors.verticalCenter: parent.verticalCenter
-                    onClicked: {
-                      root.newEventAllDay = !root.newEventAllDay
-                      if (root.newEventAllDay) eventLocationField.forceActiveFocus()
-                      else eventStartField.forceActiveFocus()
-                    }
-                  }
-
-                  TextField {
-                    id: eventStartField
-                    visible: !root.newEventAllDay
-                    width: Style.space(68)
-                    placeholderText: tr.t("form.startPlaceholder")
-                    foreground: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    verticalPadding: Style.space(4)
-                    Keys.onPressed: function(event) {
-                      root.handleEventFormKey(event, eventDateField, eventEndField)
-                    }
-                  }
-
-                  Text {
-                    visible: !root.newEventAllDay
-                    textFormat: Text.PlainText
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "–"
-                    color: Qt.darker(root.contentForeground, 1.5)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
-
-                  TextField {
-                    id: eventEndField
-                    visible: !root.newEventAllDay
-                    width: Style.space(68)
-                    placeholderText: tr.t("form.endPlaceholder")
-                    foreground: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    verticalPadding: Style.space(4)
-                    Keys.onPressed: function(event) {
-                      root.handleEventFormKey(event, eventStartField, eventLocationField)
-                    }
-                  }
-                }
-
-                TextField {
-                  id: eventLocationField
-                  width: parent.width
-                  placeholderText: tr.t("form.locationPlaceholder")
-                  foreground: root.contentForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  verticalPadding: Style.space(4)
-                  Keys.onPressed: function(event) {
-                    root.handleEventFormKey(
-                      event,
-                      root.newEventAllDay ? eventDateField : eventEndField,
-                      eventDescriptionField
-                    )
-                  }
-                }
-
-                Row {
-                  width: parent.width
-                  spacing: Style.space(6)
-
-                  TextField {
-                    id: eventDescriptionField
-                    width: parent.width - saveEvBtn.width - cancelEvBtn.width - Style.space(12)
-                    placeholderText: tr.t("form.descriptionPlaceholder")
-                    foreground: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    verticalPadding: Style.space(4)
-                    Keys.onPressed: function(event) {
-                      root.handleEventFormKey(event, eventLocationField, eventTitleField)
-                    }
-                  }
-
-                  Button {
-                    id: saveEvBtn
-                    text: tr.t("form.save")
-                    bordered: true
-                    selected: true
-                    foreground: root.contentForeground
-                    accent: Commons.Color.accent
-                    fontFamily: root.contentFontFamily
-                    fontSize: Style.font.bodySmall
-                    horizontalPadding: Style.space(10)
-                    verticalPadding: Style.space(5)
-                    onClicked: root.commitNewEvent()
-                  }
-
-                  Button {
-                    id: cancelEvBtn
-                    text: tr.t("form.cancel")
-                    bordered: true
-                    foreground: root.contentForeground
-                    accent: Commons.Color.accent
-                    fontFamily: root.contentFontFamily
-                    fontSize: Style.font.bodySmall
-                    horizontalPadding: Style.space(10)
-                    verticalPadding: Style.space(5)
-                    onClicked: root.cancelAddingEvent()
-                  }
-                }
-              }
-            }
-          }
 
           // ==================================================================
           // VIEW 1: MONTH VIEW ("month")
@@ -1921,7 +1807,7 @@ Ui.Panel {
 
               readonly property int weekHourColWidth: Style.space(38)
               readonly property int weekColWidth: Math.floor((root.fullGridWidth - weekHourColWidth) / 7)
-              readonly property int weekHourHeight: Style.space(40)
+              readonly property int weekHourHeight: Style.space(32)
 
               // 1. Day headers row (SUN 1, MON 2, ...) aligned with the 7 columns
               Item {
@@ -2079,7 +1965,7 @@ Ui.Panel {
               Flickable {
                 id: weekTimelineFlick
                 width: parent.width
-                height: Style.space(340)
+                height: Style.space(240)
                 contentWidth: width
                 contentHeight: 24 * weekViewCol.weekHourHeight
                 clip: true
@@ -2161,11 +2047,7 @@ Ui.Panel {
                         width: weekViewCol.weekColWidth
                         height: parent.height
 
-                        property bool isDrafting: false
-                        property int draftStartMinutes: 0
-                        property int draftEndMinutes: 0
-                        property real dragStartY: 0
-                        property int dragAnchorMinutes: 0
+                        readonly property bool isCurrentDraftColumn: root.addingEvent && root.draftDateKey === modelData.key
 
                         // Vertical divider line to right of day column
                         Rectangle {
@@ -2176,81 +2058,74 @@ Ui.Panel {
                           color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
                         }
 
-                        // Background drag-to-create or double-click to add MouseArea
+                        // Background drag-to-create or click to add MouseArea
                         MouseArea {
                           anchors.fill: parent
                           hoverEnabled: true
-                          cursorShape: weekDayColItem.isDrafting ? Qt.SizeVerCursor : Qt.PointingHandCursor
+                          cursorShape: Qt.PointingHandCursor
+
+                          property real pressStartY: 0
+                          property int dragAnchorMinutes: 0
+                          property bool isDraggingRange: false
 
                           onPressed: function(mouse) {
-                            weekDayColItem.dragStartY = mouse.y
+                            pressStartY = mouse.y
                             var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
-                            weekDayColItem.dragAnchorMinutes = Math.max(0, Math.min(1425, Math.floor(rawMin / 15) * 15))
-                            weekDayColItem.draftStartMinutes = weekDayColItem.dragAnchorMinutes
-                            weekDayColItem.draftEndMinutes = Math.min(1440, weekDayColItem.dragAnchorMinutes + 60)
+                            dragAnchorMinutes = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                            isDraggingRange = false
                           }
 
                           onPositionChanged: function(mouse) {
                             if (!pressed) return
-                            var diffY = mouse.y - weekDayColItem.dragStartY
-                            if (!weekDayColItem.isDrafting && Math.abs(diffY) > 5) {
-                              weekDayColItem.isDrafting = true
+                            var diffY = mouse.y - pressStartY
+                            if (!isDraggingRange && Math.abs(diffY) > 5) {
+                              isDraggingRange = true
                               weekTimelineFlick.interactive = false
+                              root.draftDateKey = modelData.key
+                              root.selectDate(modelData.year, modelData.month, modelData.day)
+                              root.addingEvent = true
                             }
-                            if (weekDayColItem.isDrafting) {
+                            if (isDraggingRange) {
                               var currentRawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
                               var snappedMin = Math.round(currentRawMin / 15) * 15
                               snappedMin = Math.max(0, Math.min(1440, snappedMin))
 
-                              if (snappedMin >= weekDayColItem.dragAnchorMinutes) {
-                                weekDayColItem.draftStartMinutes = weekDayColItem.dragAnchorMinutes
-                                weekDayColItem.draftEndMinutes = Math.max(weekDayColItem.dragAnchorMinutes + 15, snappedMin)
+                              if (snappedMin >= dragAnchorMinutes) {
+                                root.draftStartMinutes = dragAnchorMinutes
+                                root.draftEndMinutes = Math.max(dragAnchorMinutes + 15, snappedMin)
                               } else {
-                                weekDayColItem.draftStartMinutes = Math.min(weekDayColItem.dragAnchorMinutes - 15, snappedMin)
-                                weekDayColItem.draftEndMinutes = weekDayColItem.dragAnchorMinutes
+                                root.draftStartMinutes = Math.min(dragAnchorMinutes - 15, snappedMin)
+                                root.draftEndMinutes = dragAnchorMinutes
                               }
                             }
                           }
 
                           onReleased: function() {
                             weekTimelineFlick.interactive = true
-                            if (weekDayColItem.isDrafting) {
-                              weekDayColItem.isDrafting = false
-                              var startStr = Model.formatMinutes(weekDayColItem.draftStartMinutes)
-                              var endStr = Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                            if (!isDraggingRange) {
+                              // Single click on empty slot creates a 1-hour event block at that slot
+                              var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
+                              var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                              var endMin = Math.min(1440, startMin + 60)
                               var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
                               root.selectDate(modelData.year, modelData.month, modelData.day)
-                              root.startAddingEventWithRange(dateKey, startStr, endStr)
+                              root.startAddingEventWithRange(dateKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
                             }
-                          }
-
-                          onDoubleClicked: function(mouse) {
-                            weekDayColItem.isDrafting = false
-                            weekTimelineFlick.interactive = true
-                            var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
-                            var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
-                            var endMin = Math.min(1440, startMin + 60)
-                            var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
-                            root.selectDate(modelData.year, modelData.month, modelData.day)
-                            root.startAddingEventWithRange(dateKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
-                          }
-
-                          onClicked: function(mouse) {
-                            root.selectDate(modelData.year, modelData.month, modelData.day)
+                            isDraggingRange = false
                           }
                         }
 
                         // Live Drag-to-Create Draft Card in Week View Column
                         Rectangle {
                           id: weekDraftCard
-                          visible: weekDayColItem.isDrafting
-                          z: 30
+                          visible: weekDayColItem.isCurrentDraftColumn
+                          z: 35
                           anchors.left: parent.left
                           anchors.leftMargin: 1
                           anchors.right: parent.right
                           anchors.rightMargin: 1
-                          y: Math.round((weekDayColItem.draftStartMinutes / 60.0) * weekViewCol.weekHourHeight)
-                          height: Math.max(Style.space(18), Math.round(((weekDayColItem.draftEndMinutes - weekDayColItem.draftStartMinutes) / 60.0) * weekViewCol.weekHourHeight) - 2)
+                          y: Math.round((root.draftStartMinutes / 60.0) * weekViewCol.weekHourHeight)
+                          height: Math.max(Style.space(20), Math.round(((root.draftEndMinutes - root.draftStartMinutes) / 60.0) * weekViewCol.weekHourHeight) - 2)
                           radius: Math.max(2, Style.cornerRadius / 2)
                           color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.28)
                           border.width: 1.5
@@ -2281,7 +2156,7 @@ Ui.Panel {
                               textFormat: Text.PlainText
                               width: parent.width
                               elide: Text.ElideRight
-                              text: tr.t("form.newEvent")
+                              text: root.newEventTitleText !== "" ? root.newEventTitleText : "(Sem título)"
                               color: root.contentForeground
                               font.family: root.contentFontFamily
                               font.pixelSize: Math.max(9, Style.font.caption - 1)
@@ -2293,11 +2168,117 @@ Ui.Panel {
                               textFormat: Text.PlainText
                               width: parent.width
                               elide: Text.ElideRight
-                              text: Model.formatMinutes(weekDayColItem.draftStartMinutes) + " – " + Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                              text: Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
                               color: Commons.Color.accent
                               font.family: root.contentFontFamily
                               font.pixelSize: Math.max(8, Style.font.caption - 2)
                               font.bold: true
+                            }
+                          }
+
+                          // Drag card to adjust time position
+                          MouseArea {
+                            anchors.fill: parent
+                            anchors.topMargin: Style.space(6)
+                            anchors.bottomMargin: Style.space(6)
+                            hoverEnabled: true
+                            cursorShape: Qt.SizeAllCursor
+
+                            property real startCanvasY: 0
+                            property int startMinVal: 0
+                            property int endMinVal: 0
+
+                            onPressed: function(mouse) {
+                              weekTimelineFlick.interactive = false
+                              startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
+                              startMinVal = root.draftStartMinutes
+                              endMinVal = root.draftEndMinutes
+                            }
+
+                            onPositionChanged: function(mouse) {
+                              if (!pressed) return
+                              var currY = mapToItem(weekCanvas, 0, mouse.y).y
+                              var deltaMin = Math.round((currY - startCanvasY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
+                              var duration = endMinVal - startMinVal
+                              var candStart = Math.max(0, Math.min(1440 - duration, startMinVal + deltaMin))
+                              root.draftStartMinutes = candStart
+                              root.draftEndMinutes = candStart + duration
+                            }
+
+                            onReleased: function() {
+                              weekTimelineFlick.interactive = true
+                            }
+                          }
+
+                          // Top resize handle
+                          Item {
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: Style.space(6)
+                            z: 40
+
+                            MouseArea {
+                              anchors.fill: parent
+                              hoverEnabled: true
+                              cursorShape: Qt.SizeVerCursor
+
+                              property real startCanvasY: 0
+                              property int startMinVal: 0
+
+                              onPressed: function(mouse) {
+                                weekTimelineFlick.interactive = false
+                                startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
+                                startMinVal = root.draftStartMinutes
+                              }
+
+                              onPositionChanged: function(mouse) {
+                                if (!pressed) return
+                                var currY = mapToItem(weekCanvas, 0, mouse.y).y
+                                var deltaMin = Math.round((currY - startCanvasY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
+                                var cand = Math.max(0, Math.min(root.draftEndMinutes - 15, startMinVal + deltaMin))
+                                root.draftStartMinutes = cand
+                              }
+
+                              onReleased: function() {
+                                weekTimelineFlick.interactive = true
+                              }
+                            }
+                          }
+
+                          // Bottom resize handle
+                          Item {
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: Style.space(6)
+                            z: 40
+
+                            MouseArea {
+                              anchors.fill: parent
+                              hoverEnabled: true
+                              cursorShape: Qt.SizeVerCursor
+
+                              property real startCanvasY: 0
+                              property int endMinVal: 0
+
+                              onPressed: function(mouse) {
+                                weekTimelineFlick.interactive = false
+                                startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
+                                endMinVal = root.draftEndMinutes
+                              }
+
+                              onPositionChanged: function(mouse) {
+                                if (!pressed) return
+                                var currY = mapToItem(weekCanvas, 0, mouse.y).y
+                                var deltaMin = Math.round((currY - startCanvasY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
+                                var cand = Math.max(root.draftStartMinutes + 15, Math.min(1440, endMinVal + deltaMin))
+                                root.draftEndMinutes = cand
+                              }
+
+                              onReleased: function() {
+                                weekTimelineFlick.interactive = true
+                              }
                             }
                           }
 
@@ -2318,7 +2299,7 @@ Ui.Panel {
                               id: weekDraftBadgeText
                               anchors.centerIn: parent
                               textFormat: Text.PlainText
-                              text: Model.formatMinutes(weekDayColItem.draftStartMinutes) + " – " + Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                              text: Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
                               color: Commons.Color.accent
                               font.family: root.contentFontFamily
                               font.pixelSize: Math.max(8, Style.font.caption - 1)
@@ -2484,18 +2465,22 @@ Ui.Panel {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.SizeVerCursor
+                                    property real startCanvasY: 0
                                     onPressed: function(mouse) {
+                                      weekTimelineFlick.interactive = false
                                       weekEventCard.isDraggingBottom = true
-                                      weekEventCard.dragStartY = mouse.y
+                                      startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
                                       weekEventCard.initialEndMinutes = weekEventCard.liveEndMinutes
                                     }
                                     onPositionChanged: function(mouse) {
                                       if (!weekEventCard.isDraggingBottom) return
-                                      var deltaMin = Math.round((mouse.y - weekEventCard.dragStartY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
+                                      var currY = mapToItem(weekCanvas, 0, mouse.y).y
+                                      var deltaMin = Math.round((currY - startCanvasY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
                                       var candidate = Math.max(weekEventCard.liveStartMinutes + 15, Math.min(1440, weekEventCard.initialEndMinutes + deltaMin))
                                       weekEventCard.liveEndMinutes = candidate
                                     }
                                     onReleased: function() {
+                                      weekTimelineFlick.interactive = true
                                       if (weekEventCard.isDraggingBottom) {
                                         weekEventCard.isDraggingBottom = false
                                         if (weekEventCard.liveEndMinutes !== modelData.effectiveEndMinutes) {
@@ -2756,14 +2741,14 @@ Ui.Panel {
               Flickable {
                 id: dayTimelineFlick
                 width: parent.width
-                height: Style.space(340)
+                height: Style.space(280)
                 contentWidth: width
                 contentHeight: 24 * dayHourHeight
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
 
-                readonly property int dayHourHeight: Style.space(46)
+                readonly property int dayHourHeight: Style.space(42)
                 readonly property int dayHourColWidth: Style.space(48)
 
                 function scrollToRelevantHour() {
@@ -2788,11 +2773,7 @@ Ui.Panel {
                   width: dayTimelineFlick.width
                   height: 24 * dayTimelineFlick.dayHourHeight
 
-                  property bool isDrafting: false
-                  property int draftStartMinutes: 0
-                  property int draftEndMinutes: 0
-                  property real dragStartY: 0
-                  property int dragAnchorMinutes: 0
+                  readonly property bool isCurrentDraftDay: root.addingEvent && root.draftDateKey === root.dayData.key
 
                   // 1. Hourly grid lines & hour labels
                   Repeater {
@@ -2844,7 +2825,7 @@ Ui.Panel {
                     }
                   }
 
-                  // 2. Background drag-to-create or double-click to add MouseArea
+                  // 2. Background drag-to-create or click to add MouseArea
                   MouseArea {
                     id: dayBgMouse
                     anchors.left: parent.left
@@ -2853,69 +2834,67 @@ Ui.Panel {
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     hoverEnabled: true
-                    cursorShape: dayCanvas.isDrafting ? Qt.SizeVerCursor : Qt.PointingHandCursor
+                    cursorShape: Qt.PointingHandCursor
+
+                    property real pressStartY: 0
+                    property int dragAnchorMinutes: 0
+                    property bool isDraggingRange: false
 
                     onPressed: function(mouse) {
-                      dayCanvas.dragStartY = mouse.y
+                      pressStartY = mouse.y
                       var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
-                      dayCanvas.dragAnchorMinutes = Math.max(0, Math.min(1425, Math.floor(rawMin / 15) * 15))
-                      dayCanvas.draftStartMinutes = dayCanvas.dragAnchorMinutes
-                      dayCanvas.draftEndMinutes = Math.min(1440, dayCanvas.dragAnchorMinutes + 60)
+                      dragAnchorMinutes = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                      isDraggingRange = false
                     }
 
                     onPositionChanged: function(mouse) {
                       if (!pressed) return
-                      var diffY = mouse.y - dayCanvas.dragStartY
-                      if (!dayCanvas.isDrafting && Math.abs(diffY) > 5) {
-                        dayCanvas.isDrafting = true
+                      var diffY = mouse.y - pressStartY
+                      if (!isDraggingRange && Math.abs(diffY) > 5) {
+                        isDraggingRange = true
                         dayTimelineFlick.interactive = false
+                        root.draftDateKey = root.selectedKey
+                        root.addingEvent = true
                       }
-                      if (dayCanvas.isDrafting) {
+                      if (isDraggingRange) {
                         var currentRawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
                         var snappedMin = Math.round(currentRawMin / 15) * 15
                         snappedMin = Math.max(0, Math.min(1440, snappedMin))
 
-                        if (snappedMin >= dayCanvas.dragAnchorMinutes) {
-                          dayCanvas.draftStartMinutes = dayCanvas.dragAnchorMinutes
-                          dayCanvas.draftEndMinutes = Math.max(dayCanvas.dragAnchorMinutes + 15, snappedMin)
+                        if (snappedMin >= dragAnchorMinutes) {
+                          root.draftStartMinutes = dragAnchorMinutes
+                          root.draftEndMinutes = Math.max(dragAnchorMinutes + 15, snappedMin)
                         } else {
-                          dayCanvas.draftStartMinutes = Math.min(dayCanvas.dragAnchorMinutes - 15, snappedMin)
-                          dayCanvas.draftEndMinutes = dayCanvas.dragAnchorMinutes
+                          root.draftStartMinutes = Math.min(dragAnchorMinutes - 15, snappedMin)
+                          root.draftEndMinutes = dragAnchorMinutes
                         }
                       }
                     }
 
                     onReleased: function() {
                       dayTimelineFlick.interactive = true
-                      if (dayCanvas.isDrafting) {
-                        dayCanvas.isDrafting = false
-                        var startStr = Model.formatMinutes(dayCanvas.draftStartMinutes)
-                        var endStr = Model.formatMinutes(dayCanvas.draftEndMinutes)
-                        root.startAddingEventWithRange(root.selectedKey, startStr, endStr)
+                      if (!isDraggingRange) {
+                        // Single click creates 1-hour block at clicked time
+                        var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
+                        var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                        var endMin = Math.min(1440, startMin + 60)
+                        root.startAddingEventWithRange(root.selectedKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
                       }
-                    }
-
-                    onDoubleClicked: function(mouse) {
-                      dayCanvas.isDrafting = false
-                      dayTimelineFlick.interactive = true
-                      var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
-                      var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
-                      var endMin = Math.min(1440, startMin + 60)
-                      root.startAddingEventWithRange(root.selectedKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
+                      isDraggingRange = false
                     }
                   }
 
                   // Live Drag-to-Create Draft Card in Day View
                   Rectangle {
                     id: dayDraftCard
-                    visible: dayCanvas.isDrafting
-                    z: 30
+                    visible: dayCanvas.isCurrentDraftDay
+                    z: 35
                     anchors.left: parent.left
                     anchors.leftMargin: dayTimelineFlick.dayHourColWidth + Style.space(2)
                     anchors.right: parent.right
                     anchors.rightMargin: Style.space(4)
-                    y: Math.round((dayCanvas.draftStartMinutes / 60.0) * dayTimelineFlick.dayHourHeight)
-                    height: Math.max(Style.space(22), Math.round(((dayCanvas.draftEndMinutes - dayCanvas.draftStartMinutes) / 60.0) * dayTimelineFlick.dayHourHeight) - 2)
+                    y: Math.round((root.draftStartMinutes / 60.0) * dayTimelineFlick.dayHourHeight)
+                    height: Math.max(Style.space(22), Math.round(((root.draftEndMinutes - root.draftStartMinutes) / 60.0) * dayTimelineFlick.dayHourHeight) - 2)
                     radius: Math.max(3, Style.cornerRadius / 2)
                     color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.25)
                     border.width: 1.5
@@ -2947,10 +2926,10 @@ Ui.Panel {
                         textFormat: Text.PlainText
                         width: parent.width
                         elide: Text.ElideRight
-                        text: Model.formatMinutes(dayCanvas.draftStartMinutes) + " – " + Model.formatMinutes(dayCanvas.draftEndMinutes)
-                        color: Commons.Color.accent
+                        text: root.newEventTitleText !== "" ? root.newEventTitleText : "(Sem título)"
+                        color: root.contentForeground
                         font.family: root.contentFontFamily
-                        font.pixelSize: Math.max(9, Style.font.caption - 1)
+                        font.pixelSize: Style.font.bodySmall
                         font.bold: true
                       }
 
@@ -2958,15 +2937,121 @@ Ui.Panel {
                         textFormat: Text.PlainText
                         width: parent.width
                         elide: Text.ElideRight
-                        text: tr.t("form.newEvent")
-                        color: root.contentForeground
+                        text: Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
+                        color: Commons.Color.accent
                         font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.bodySmall
+                        font.pixelSize: Math.max(9, Style.font.caption - 1)
                         font.bold: true
                       }
                     }
 
-                    // Floating live badge attached to bottom of draft card
+                    // Card body drag to shift time
+                    MouseArea {
+                      anchors.fill: parent
+                      anchors.topMargin: Style.space(8)
+                      anchors.bottomMargin: Style.space(8)
+                      hoverEnabled: true
+                      cursorShape: Qt.SizeAllCursor
+
+                      property real startCanvasY: 0
+                      property int startMinVal: 0
+                      property int endMinVal: 0
+
+                      onPressed: function(mouse) {
+                        dayTimelineFlick.interactive = false
+                        startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
+                        startMinVal = root.draftStartMinutes
+                        endMinVal = root.draftEndMinutes
+                      }
+
+                      onPositionChanged: function(mouse) {
+                        if (!pressed) return
+                        var currY = mapToItem(dayCanvas, 0, mouse.y).y
+                        var deltaMin = Math.round((currY - startCanvasY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                        var duration = endMinVal - startMinVal
+                        var candStart = Math.max(0, Math.min(1440 - duration, startMinVal + deltaMin))
+                        root.draftStartMinutes = candStart
+                        root.draftEndMinutes = candStart + duration
+                      }
+
+                      onReleased: function() {
+                        dayTimelineFlick.interactive = true
+                      }
+                    }
+
+                    // Top resize handle
+                    Item {
+                      anchors.top: parent.top
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      height: Style.space(8)
+                      z: 40
+
+                      MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeVerCursor
+
+                        property real startCanvasY: 0
+                        property int startMinVal: 0
+
+                        onPressed: function(mouse) {
+                          dayTimelineFlick.interactive = false
+                          startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
+                          startMinVal = root.draftStartMinutes
+                        }
+
+                        onPositionChanged: function(mouse) {
+                          if (!pressed) return
+                          var currY = mapToItem(dayCanvas, 0, mouse.y).y
+                          var deltaMin = Math.round((currY - startCanvasY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                          var cand = Math.max(0, Math.min(root.draftEndMinutes - 15, startMinVal + deltaMin))
+                          root.draftStartMinutes = cand
+                        }
+
+                        onReleased: function() {
+                          dayTimelineFlick.interactive = true
+                        }
+                      }
+                    }
+
+                    // Bottom resize handle
+                    Item {
+                      anchors.bottom: parent.bottom
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      height: Style.space(8)
+                      z: 40
+
+                      MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeVerCursor
+
+                        property real startCanvasY: 0
+                        property int endMinVal: 0
+
+                        onPressed: function(mouse) {
+                          dayTimelineFlick.interactive = false
+                          startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
+                          endMinVal = root.draftEndMinutes
+                        }
+
+                        onPositionChanged: function(mouse) {
+                          if (!pressed) return
+                          var currY = mapToItem(dayCanvas, 0, mouse.y).y
+                          var deltaMin = Math.round((currY - startCanvasY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                          var cand = Math.max(root.draftStartMinutes + 15, Math.min(1440, endMinVal + deltaMin))
+                          root.draftEndMinutes = cand
+                        }
+
+                        onReleased: function() {
+                          dayTimelineFlick.interactive = true
+                        }
+                      }
+                    }
+
+                    // Floating live badge attached to draft card
                     Rectangle {
                       z: 50
                       anchors.horizontalCenter: parent.horizontalCenter
@@ -2983,7 +3068,7 @@ Ui.Panel {
                         id: dayDraftBadgeText
                         anchors.centerIn: parent
                         textFormat: Text.PlainText
-                        text: Model.formatMinutes(dayCanvas.draftStartMinutes) + " – " + Model.formatMinutes(dayCanvas.draftEndMinutes)
+                        text: Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
                         color: Commons.Color.accent
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
@@ -3201,18 +3286,22 @@ Ui.Panel {
                               anchors.fill: parent
                               hoverEnabled: true
                               cursorShape: Qt.SizeVerCursor
+                              property real startCanvasY: 0
                               onPressed: function(mouse) {
+                                dayTimelineFlick.interactive = false
                                 dayEventCard.isDraggingTop = true
-                                dayEventCard.dragStartY = mouse.y
+                                startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
                                 dayEventCard.initialStartMinutes = dayEventCard.liveStartMinutes
                               }
                               onPositionChanged: function(mouse) {
                                 if (!dayEventCard.isDraggingTop) return
-                                var deltaMin = Math.round((mouse.y - dayEventCard.dragStartY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                                var currY = mapToItem(dayCanvas, 0, mouse.y).y
+                                var deltaMin = Math.round((currY - startCanvasY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
                                 var candidate = Math.max(0, Math.min(dayEventCard.liveEndMinutes - 15, dayEventCard.initialStartMinutes + deltaMin))
                                 dayEventCard.liveStartMinutes = candidate
                               }
                               onReleased: function() {
+                                dayTimelineFlick.interactive = true
                                 if (dayEventCard.isDraggingTop) {
                                   dayEventCard.isDraggingTop = false
                                   if (dayEventCard.liveStartMinutes !== modelData.effectiveStartMinutes) {
@@ -3250,18 +3339,22 @@ Ui.Panel {
                               anchors.fill: parent
                               hoverEnabled: true
                               cursorShape: Qt.SizeVerCursor
+                              property real startCanvasY: 0
                               onPressed: function(mouse) {
+                                dayTimelineFlick.interactive = false
                                 dayEventCard.isDraggingBottom = true
-                                dayEventCard.dragStartY = mouse.y
+                                startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
                                 dayEventCard.initialEndMinutes = dayEventCard.liveEndMinutes
                               }
                               onPositionChanged: function(mouse) {
                                 if (!dayEventCard.isDraggingBottom) return
-                                var deltaMin = Math.round((mouse.y - dayEventCard.dragStartY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                                var currY = mapToItem(dayCanvas, 0, mouse.y).y
+                                var deltaMin = Math.round((currY - startCanvasY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
                                 var candidate = Math.max(dayEventCard.liveStartMinutes + 15, Math.min(1440, dayEventCard.initialEndMinutes + deltaMin))
                                 dayEventCard.liveEndMinutes = candidate
                               }
                               onReleased: function() {
+                                dayTimelineFlick.interactive = true
                                 if (dayEventCard.isDraggingBottom) {
                                   dayEventCard.isDraggingBottom = false
                                   if (dayEventCard.liveEndMinutes !== modelData.effectiveEndMinutes) {
@@ -3520,7 +3613,7 @@ Ui.Panel {
           // SELECTED DAY AGENDA DRAWER (shown under Month and Week views)
           // ==================================================================
           Item {
-            visible: root.viewMode === "month" || root.viewMode === "week"
+            visible: root.viewMode === "month"
             width: parent.width
             height: visible ? agendaBlock.height : 0
 
@@ -3719,7 +3812,399 @@ Ui.Panel {
             }
           }
         }
+
+      // ==================================================================
+      // FLOATING GOOGLE CALENDAR EVENT CREATION MODAL OVERLAY
+      // ==================================================================
+      Item {
+        id: eventModalContainer
+        anchors.fill: parent
+        z: 120
+        visible: root.addingEvent
+
+        BorderSurface {
+          id: eventModalCard
+          anchors.horizontalCenter: parent.horizontalCenter
+          y: Math.max(Style.space(20), Math.min(Style.space(68), Math.floor((parent.height - implicitHeight) / 2)))
+          width: Math.min(Style.space(420), parent.width - Style.space(24))
+          implicitHeight: eventModalCol.implicitHeight + Style.space(22)
+          radius: Style.cornerRadius * 1.5
+          color: Qt.rgba(0.12, 0.13, 0.15, 0.97)
+          borderSpec: Border.controlSpec("active", root.contentForeground, Commons.Color.accent)
+
+          Column {
+            id: eventModalCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Style.space(12)
+            spacing: Style.space(8)
+
+            // 1. Header with drag grip icon and close button
+            Row {
+              width: parent.width
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                text: "󰍜"
+                color: Qt.darker(root.contentForeground, 1.8)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Item {
+                width: parent.width - Style.space(46)
+                height: 1
+              }
+
+              Button {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(24)
+                height: Style.space(24)
+                iconText: "󰅖"
+                bordered: false
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.cancelAddingEvent()
+              }
+            }
+
+            // 2. Event Title Input Field
+            TextField {
+              id: eventTitleInput
+              width: parent.width
+              placeholderText: tr.t("form.titlePlaceholder")
+              text: root.newEventTitleText
+              onTextChanged: { root.newEventTitleText = text }
+              foreground: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodyLarge
+              font.bold: true
+              verticalPadding: Style.space(4)
+              horizontalPadding: Style.space(2)
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                else if (event.key === Qt.Key_Tab) { eventStartInput.forceActiveFocus(); event.accepted = true }
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: 2
+              color: eventTitleInput.activeFocus ? Commons.Color.accent : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.2)
+            }
+
+            // 3. Type Selector Pill
+            Row {
+              spacing: Style.space(6)
+
+              Rectangle {
+                height: Style.space(24)
+                width: eventPillText.implicitWidth + Style.space(18)
+                radius: height / 2
+                color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.25)
+                border.width: 1
+                border.color: Commons.Color.accent
+
+                Text {
+                  id: eventPillText
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: tr.t("view.day") === "Day" ? "Event" : "Evento"
+                  color: Commons.Color.accent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+            }
+
+            // 4. Date & Time Row (with clock icon)
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.top: parent.top
+                anchors.topMargin: Style.space(2)
+                text: "󰥔"
+                color: Qt.darker(root.contentForeground, 1.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Column {
+                width: parent.width - Style.space(32)
+                spacing: Style.space(6)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: {
+                    var p = Model.parseDateKey(root.draftDateKey || root.selectedKey)
+                    var dObj = p ? new Date(p.year, p.month, p.day, 12) : root.selectedDateObj
+                    var dStr = dObj.toLocaleDateString(root.labelLocale, Commons.I18n.t("clock.dayMonthFormat"))
+                    if (root.newEventAllDay) return dStr + " · " + tr.t("events.allDay")
+                    return dStr + "  " + Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
+                  }
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                Row {
+                  spacing: Style.space(6)
+
+                  TextField {
+                    id: eventDateInput
+                    width: Style.space(88)
+                    text: root.draftDateKey || root.selectedKey
+                    onEditingFinished: {
+                      if (Model.parseDateKey(text)) root.draftDateKey = text
+                    }
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    verticalPadding: Style.space(2)
+                    horizontalPadding: Style.space(4)
+                  }
+
+                  TextField {
+                    id: eventStartInput
+                    width: Style.space(52)
+                    visible: !root.newEventAllDay
+                    text: Model.formatMinutes(root.draftStartMinutes)
+                    onEditingFinished: {
+                      var m = Model.parseMinutes(text)
+                      if (m >= 0) {
+                        root.draftStartMinutes = m
+                        if (root.draftEndMinutes <= m) root.draftEndMinutes = Math.min(1440, m + 60)
+                      }
+                    }
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    verticalPadding: Style.space(2)
+                    horizontalPadding: Style.space(4)
+                  }
+
+                  Text {
+                    visible: !root.newEventAllDay
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "–"
+                    color: Qt.darker(root.contentForeground, 1.5)
+                  }
+
+                  TextField {
+                    id: eventEndInput
+                    width: Style.space(52)
+                    visible: !root.newEventAllDay
+                    text: Model.formatMinutes(root.draftEndMinutes)
+                    onEditingFinished: {
+                      var m = Model.parseMinutes(text)
+                      if (m > root.draftStartMinutes) root.draftEndMinutes = m
+                    }
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    verticalPadding: Style.space(2)
+                    horizontalPadding: Style.space(4)
+                  }
+
+                  Button {
+                    text: tr.t("form.allDay")
+                    selected: root.newEventAllDay
+                    bordered: true
+                    foreground: root.contentForeground
+                    accent: Commons.Color.accent
+                    fontFamily: root.contentFontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(8)
+                    verticalPadding: Style.space(2)
+                    onClicked: { root.newEventAllDay = !root.newEventAllDay }
+                  }
+                }
+              }
+            }
+
+            // 5. Google Meet Video Conferencing Row
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                text: "󰕧"
+                color: root.newEventAddMeet ? Commons.Color.accent : Qt.darker(root.contentForeground, 1.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Button {
+                visible: !root.newEventAddMeet
+                text: tr.t("form.addMeet")
+                iconText: "󰕧"
+                bordered: true
+                selected: false
+                foreground: root.contentForeground
+                accent: Commons.Color.accent
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.bodySmall
+                horizontalPadding: Style.space(10)
+                verticalPadding: Style.space(5)
+                onClicked: { root.newEventAddMeet = true }
+              }
+
+              Row {
+                visible: root.newEventAddMeet
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(8)
+
+                Rectangle {
+                  height: Style.space(26)
+                  width: meetLabelText.implicitWidth + Style.space(20)
+                  radius: height / 2
+                  color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.2)
+                  border.width: 1
+                  border.color: Commons.Color.accent
+
+                  Row {
+                    anchors.centerIn: parent
+                    spacing: Style.space(4)
+
+                    Text {
+                      textFormat: Text.PlainText
+                      text: "󰕧"
+                      color: Commons.Color.accent
+                      font.pixelSize: Style.font.caption
+                    }
+
+                    Text {
+                      id: meetLabelText
+                      textFormat: Text.PlainText
+                      text: "Google Meet"
+                      color: Commons.Color.accent
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                  }
+                }
+
+                Button {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(22)
+                  height: Style.space(22)
+                  iconText: "󰅖"
+                  tooltipText: tr.t("form.removeMeet")
+                  bordered: false
+                  foreground: root.contentForeground
+                  onClicked: { root.newEventAddMeet = false }
+                }
+              }
+            }
+
+            // 6. Location Row
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                text: "󰍎"
+                color: Qt.darker(root.contentForeground, 1.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              TextField {
+                id: eventLocationInput
+                width: parent.width - Style.space(32)
+                placeholderText: tr.t("form.addLocation")
+                text: root.newEventLocationText
+                onTextChanged: { root.newEventLocationText = text }
+                foreground: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                verticalPadding: Style.space(4)
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                  else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                  else if (event.key === Qt.Key_Tab) { eventDescriptionInput.forceActiveFocus(); event.accepted = true }
+                }
+              }
+            }
+
+            // 7. Description Row
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                text: "󰎞"
+                color: Qt.darker(root.contentForeground, 1.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              TextField {
+                id: eventDescriptionInput
+                width: parent.width - Style.space(32)
+                placeholderText: tr.t("form.addDescription")
+                text: root.newEventDescriptionText
+                onTextChanged: { root.newEventDescriptionText = text }
+                foreground: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                verticalPadding: Style.space(4)
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                  else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                }
+              }
+            }
+
+            // 8. Action Footer (Cancel & Save)
+            Row {
+              anchors.right: parent.right
+              spacing: Style.space(10)
+              topPadding: Style.space(4)
+
+              Button {
+                text: tr.t("form.cancel")
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.bodySmall
+                horizontalPadding: Style.space(12)
+                verticalPadding: Style.space(6)
+                onClicked: root.cancelAddingEvent()
+              }
+
+              Button {
+                text: tr.t("form.save")
+                selected: true
+                bordered: true
+                foreground: root.contentForeground
+                accent: Commons.Color.accent
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.bodySmall
+                horizontalPadding: Style.space(18)
+                verticalPadding: Style.space(6)
+                onClicked: root.commitNewEvent()
+              }
+            }
+          }
+        }
       }
     }
   }
+}
 }

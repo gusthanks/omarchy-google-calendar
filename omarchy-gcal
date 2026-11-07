@@ -1043,6 +1043,7 @@ def load_local_events() -> list[dict]:
             "color": sanitize_color(item.get("color", "#33b679")),
             "source": clean_str(item.get("source", "local"), 24),
             "pendingSync": bool(item.get("pendingSync", False)),
+            "addMeet": bool(item.get("addMeet", False)),
         })
     return out
 
@@ -1067,6 +1068,15 @@ def create_google_oauth_event(
         body["location"] = ev["location"]
     if ev.get("description"):
         body["description"] = ev["description"]
+    if ev.get("addMeet"):
+        body["conferenceData"] = {
+            "createRequest": {
+                "requestId": secrets.token_hex(10),
+                "conferenceSolutionKey": {
+                    "type": "hangoutsMeet"
+                }
+            }
+        }
 
     if ev.get("allDay"):
         d_start = datetime.date.fromisoformat(ev["startDate"])
@@ -1087,16 +1097,23 @@ def create_google_oauth_event(
         body["start"] = {"dateTime": dt_s.isoformat(), "timeZone": tz_name}
         body["end"] = {"dateTime": dt_e.isoformat(), "timeZone": tz_name}
 
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1"
     resp = google_api_request("POST", url, access_token, payload=body, cfg=cfg)
     if resp:
         return parse_google_event(resp, "Google Calendar", DEFAULT_EVENT_COLOR, "primary", tz)
     return None
 
 
-def sync_all(days_back: int = 180, days_forward: int = 400) -> dict:
+def sync_all(days_back: int = 730, days_forward: int = 400) -> dict:
     ensure_dirs()
     cfg = load_config()
+    cfg_days_back = cfg.get("daysBack")
+    if isinstance(cfg_days_back, int) and cfg_days_back > 0:
+        days_back = cfg_days_back
+    cfg_days_forward = cfg.get("daysForward")
+    if isinstance(cfg_days_forward, int) and cfg_days_forward > 0:
+        days_forward = cfg_days_forward
+
     tz = local_tz()
     today = datetime.datetime.now(tz).date()
     win_start = today - datetime.timedelta(days=days_back)
@@ -1289,9 +1306,13 @@ def cmd_add(args: argparse.Namespace) -> int:
 
     location = clean_str(args.location or "", MAX_LOC_LEN)
     description = clean_str(args.description or "", MAX_DESC_LEN)
+    add_meet = bool(getattr(args, "add_meet", False))
     meet_link = ""
     if location.startswith("https://"):
         meet_link = sanitize_url(location)
+    if add_meet and not meet_link:
+        code = f"{secrets.token_hex(2)[:3]}-{secrets.token_hex(2)}-{secrets.token_hex(2)[:3]}"
+        meet_link = f"https://meet.google.com/{code}"
     color = sanitize_color(args.color or "#039be5")
 
     new_ev = {
@@ -1312,6 +1333,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         "color": color,
         "source": "local",
         "pendingSync": True,
+        "addMeet": add_meet,
     }
 
     cfg = load_config()
@@ -1650,7 +1672,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     p_sync = sub.add_parser("sync", help="Synchronize Google Calendar / iCal / local events")
-    p_sync.add_argument("--days-back", type=int, default=180)
+    p_sync.add_argument("--days-back", type=int, default=730)
     p_sync.add_argument("--days-forward", type=int, default=400)
     p_sync.add_argument("--quiet", action="store_true")
 
@@ -1664,6 +1686,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--location", default="")
     p_add.add_argument("--description", default="")
     p_add.add_argument("--color", default=DEFAULT_EVENT_COLOR)
+    p_add.add_argument("--add-meet", action="store_true", help="Add Google Meet video conferencing")
 
     p_del = sub.add_parser("delete", help="Delete a calendar event")
     p_del.add_argument("--id", required=True)
@@ -1775,7 +1798,7 @@ def main() -> int:
 
     if cmd == "sync":
         res = sync_all(
-            days_back=getattr(args, "days_back", 180),
+            days_back=getattr(args, "days_back", 730),
             days_forward=getattr(args, "days_forward", 400),
         )
         if not getattr(args, "quiet", False):

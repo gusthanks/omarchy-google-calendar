@@ -22,7 +22,7 @@ Ui.BarWidget {
 
   readonly property string configuredFormat: vertical
     ? setting("verticalFormat", "HH\n—\nmm")
-    : setting("format", "dddd HH:mm")
+    : setting("format", "dddd dd MMM h:mm AP")
   readonly property string configuredAltFormat: vertical
     ? setting("verticalFormatAlt", "dd\nMMM\n'W'ww\n''yy")
     : setting("formatAlt", "d MMMM 'W'ww yyyy")
@@ -40,7 +40,7 @@ Ui.BarWidget {
   readonly property string gcalCachePath: Quickshell.env("HOME") + "/.local/state/omarchy/gcal/events.json"
   readonly property bool autoSyncEnabled: setting("autoSync", true) !== false
   readonly property int syncIntervalMinutes: Math.max(1, parseInt(setting("syncIntervalMinutes", 10), 10) || 10)
-  readonly property bool showBarEventBadge: setting("showBarEventBadge", true) !== false
+  readonly property bool showBarEventBadge: setting("showBarEventBadge", false) === true
   readonly property bool notificationsEnabled: setting("notificationsEnabled", true) !== false
   readonly property int notifyBeforeMinutes: Math.max(0, parseInt(setting("notifyBeforeMinutes", 10), 10) || 10)
 

@@ -1029,6 +1029,7 @@ function validateQuickEvent(input) {
 
   var location = neutralizeMarkup(raw.location || "", 240)
   var description = neutralizeMarkup(raw.description || "", 600)
+  var addMeet = Boolean(raw.addMeet)
   return {
     valid: true,
     title: title,
@@ -1037,7 +1038,8 @@ function validateQuickEvent(input) {
     endTime: allDay ? "" : endTime,
     allDay: allDay,
     location: location,
-    description: description
+    description: description,
+    addMeet: addMeet
   }
 }
 

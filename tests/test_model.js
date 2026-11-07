@@ -241,13 +241,15 @@ test("quickEvent validation", () => {
     title: "Sync Call",
     dateKey: "2026-11-10",
     startTime: "14:00",
-    endTime: "15:00"
+    endTime: "15:00",
+    addMeet: true
   });
   assert.equal(good.valid, true);
   assert.equal(good.title, "Sync Call");
   assert.equal(good.dateKey, "2026-11-10");
   assert.equal(good.startTime, "14:00");
   assert.equal(good.endTime, "15:00");
+  assert.equal(good.addMeet, true);
 });
 
 test("yearViewModel suppresses today and selected for days outside the month", () => {

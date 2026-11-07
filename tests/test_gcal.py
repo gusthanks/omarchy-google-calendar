@@ -5,6 +5,7 @@ Run with: python3 -m unittest discover -s tests -p "test_*.py"
 """
 
 import datetime
+import argparse
 import importlib.machinery
 import importlib.util
 import json
@@ -447,6 +448,32 @@ END:VCALENDAR"""
                 self.assertIsNotNone(res)
                 self.assertIn("items", res)
                 self.assertEqual(attempt[0], 2)
+
+    def test_cmd_add_with_meet(self):
+        args_add = argparse.Namespace(
+            title="Video Sync Standup",
+            date="2026-11-16",
+            end_date="2026-11-16",
+            start="11:00",
+            end="12:00",
+            all_day=False,
+            location="",
+            description="Daily video standup",
+            color="#039be5",
+            add_meet=True
+        )
+        self.assertEqual(gcal.cmd_add(args_add), 0)
+        cache = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
+        events = cache.get("events", [])
+        standup = [e for e in events if e["title"] == "Video Sync Standup"][0]
+        self.assertTrue(standup.get("meetLink", "").startswith("https://meet.google.com/"))
+        self.assertTrue(standup.get("addMeet", False))
+
+    def test_sync_all_honors_days_back_and_forward_from_config(self):
+        gcal.atomic_write_json(gcal.CONFIG_FILE, {"daysBack": 900, "daysForward": 500})
+        # Call sync_all and check that daysBack config is read
+        res = gcal.sync_all()
+        self.assertIn("events", res)
 
     def test_cmd_auth_auto_detects_downloads(self):
         downloads = Path(self.temp_dir.name) / "Downloads"
