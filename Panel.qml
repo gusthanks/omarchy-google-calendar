@@ -368,21 +368,30 @@ Ui.Panel {
   }
 
   function startAddingEvent(presetHour) {
+    var startStr = (typeof presetHour === "number" && presetHour >= 0 && presetHour <= 23)
+      ? Model.pad2(presetHour) + ":00"
+      : "09:00"
+    var endStr = (typeof presetHour === "number" && presetHour >= 0 && presetHour <= 23)
+      ? Model.pad2(Math.min(23, presetHour + 1)) + ":00"
+      : "10:00"
+    root.startAddingEventWithRange(root.selectedKey, startStr, endStr)
+  }
+
+  function startAddingEventWithRange(dateKey, startTimeStr, endTimeStr) {
     root.showingSyncSettings = false
     root.addingEvent = true
     root.newEventAllDay = false
+    if (dateKey) {
+      var p = Model.parseDateKey(dateKey)
+      if (p) root.selectDate(p.year, p.month, p.day)
+    }
     Qt.callLater(function() {
       var content = panel.loadedContent
       if (!content) return
       content.eventTitleField.text = ""
-      content.eventDateField.text = root.selectedKey
-      if (typeof presetHour === "number" && presetHour >= 0 && presetHour <= 23) {
-        content.eventStartField.text = Model.pad2(presetHour) + ":00"
-        content.eventEndField.text = Model.pad2(Math.min(23, presetHour + 1)) + ":00"
-      } else {
-        content.eventStartField.text = "09:00"
-        content.eventEndField.text = "10:00"
-      }
+      content.eventDateField.text = dateKey || root.selectedKey
+      content.eventStartField.text = startTimeStr || "09:00"
+      content.eventEndField.text = endTimeStr || "10:00"
       content.eventLocationField.text = ""
       content.eventDescriptionField.text = ""
       content.eventTitleField.forceActiveFocus()
@@ -2152,6 +2161,12 @@ Ui.Panel {
                         width: weekViewCol.weekColWidth
                         height: parent.height
 
+                        property bool isDrafting: false
+                        property int draftStartMinutes: 0
+                        property int draftEndMinutes: 0
+                        property real dragStartY: 0
+                        property int dragAnchorMinutes: 0
+
                         // Vertical divider line to right of day column
                         Rectangle {
                           anchors.right: parent.right
@@ -2161,15 +2176,154 @@ Ui.Panel {
                           color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
                         }
 
-                        // Background click-to-add MouseArea
+                        // Background drag-to-create or double-click to add MouseArea
                         MouseArea {
                           anchors.fill: parent
                           hoverEnabled: true
-                          cursorShape: Qt.PointingHandCursor
-                          onClicked: function(mouse) {
-                            var clickedHour = Math.floor(mouse.y / weekViewCol.weekHourHeight)
+                          cursorShape: weekDayColItem.isDrafting ? Qt.SizeVerCursor : Qt.PointingHandCursor
+
+                          onPressed: function(mouse) {
+                            weekDayColItem.dragStartY = mouse.y
+                            var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
+                            weekDayColItem.dragAnchorMinutes = Math.max(0, Math.min(1425, Math.floor(rawMin / 15) * 15))
+                            weekDayColItem.draftStartMinutes = weekDayColItem.dragAnchorMinutes
+                            weekDayColItem.draftEndMinutes = Math.min(1440, weekDayColItem.dragAnchorMinutes + 60)
+                          }
+
+                          onPositionChanged: function(mouse) {
+                            if (!pressed) return
+                            var diffY = mouse.y - weekDayColItem.dragStartY
+                            if (!weekDayColItem.isDrafting && Math.abs(diffY) > 5) {
+                              weekDayColItem.isDrafting = true
+                              weekTimelineFlick.interactive = false
+                            }
+                            if (weekDayColItem.isDrafting) {
+                              var currentRawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
+                              var snappedMin = Math.round(currentRawMin / 15) * 15
+                              snappedMin = Math.max(0, Math.min(1440, snappedMin))
+
+                              if (snappedMin >= weekDayColItem.dragAnchorMinutes) {
+                                weekDayColItem.draftStartMinutes = weekDayColItem.dragAnchorMinutes
+                                weekDayColItem.draftEndMinutes = Math.max(weekDayColItem.dragAnchorMinutes + 15, snappedMin)
+                              } else {
+                                weekDayColItem.draftStartMinutes = Math.min(weekDayColItem.dragAnchorMinutes - 15, snappedMin)
+                                weekDayColItem.draftEndMinutes = weekDayColItem.dragAnchorMinutes
+                              }
+                            }
+                          }
+
+                          onReleased: function() {
+                            weekTimelineFlick.interactive = true
+                            if (weekDayColItem.isDrafting) {
+                              weekDayColItem.isDrafting = false
+                              var startStr = Model.formatMinutes(weekDayColItem.draftStartMinutes)
+                              var endStr = Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                              var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
+                              root.selectDate(modelData.year, modelData.month, modelData.day)
+                              root.startAddingEventWithRange(dateKey, startStr, endStr)
+                            }
+                          }
+
+                          onDoubleClicked: function(mouse) {
+                            weekDayColItem.isDrafting = false
+                            weekTimelineFlick.interactive = true
+                            var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
+                            var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                            var endMin = Math.min(1440, startMin + 60)
+                            var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
                             root.selectDate(modelData.year, modelData.month, modelData.day)
-                            root.startAddingEvent(clickedHour)
+                            root.startAddingEventWithRange(dateKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
+                          }
+
+                          onClicked: function(mouse) {
+                            root.selectDate(modelData.year, modelData.month, modelData.day)
+                          }
+                        }
+
+                        // Live Drag-to-Create Draft Card in Week View Column
+                        Rectangle {
+                          id: weekDraftCard
+                          visible: weekDayColItem.isDrafting
+                          z: 30
+                          anchors.left: parent.left
+                          anchors.leftMargin: 1
+                          anchors.right: parent.right
+                          anchors.rightMargin: 1
+                          y: Math.round((weekDayColItem.draftStartMinutes / 60.0) * weekViewCol.weekHourHeight)
+                          height: Math.max(Style.space(18), Math.round(((weekDayColItem.draftEndMinutes - weekDayColItem.draftStartMinutes) / 60.0) * weekViewCol.weekHourHeight) - 2)
+                          radius: Math.max(2, Style.cornerRadius / 2)
+                          color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.28)
+                          border.width: 1.5
+                          border.color: Commons.Color.accent
+
+                          Rectangle {
+                            width: Style.space(3)
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            radius: parent.radius
+                            color: Commons.Color.accent
+                          }
+
+                          Column {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(5)
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(2)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(2)
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: Style.space(2)
+                            spacing: 0
+                            clip: true
+
+                            Text {
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: tr.t("form.newEvent")
+                              color: root.contentForeground
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Math.max(9, Style.font.caption - 1)
+                              font.bold: true
+                            }
+
+                            Text {
+                              visible: weekDraftCard.height >= Style.space(26)
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: Model.formatMinutes(weekDayColItem.draftStartMinutes) + " – " + Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                              color: Commons.Color.accent
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Math.max(8, Style.font.caption - 2)
+                              font.bold: true
+                            }
+                          }
+
+                          // Floating live badge for week view draft
+                          Rectangle {
+                            z: 50
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: -Style.space(22)
+                            width: weekDraftBadgeText.implicitWidth + Style.space(8)
+                            height: Style.space(18)
+                            radius: Style.cornerRadius / 2
+                            color: Qt.rgba(0, 0, 0, 0.88)
+                            border.width: 1
+                            border.color: Commons.Color.accent
+
+                            Text {
+                              id: weekDraftBadgeText
+                              anchors.centerIn: parent
+                              textFormat: Text.PlainText
+                              text: Model.formatMinutes(weekDayColItem.draftStartMinutes) + " – " + Model.formatMinutes(weekDayColItem.draftEndMinutes)
+                              color: Commons.Color.accent
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Math.max(8, Style.font.caption - 1)
+                              font.bold: true
+                            }
                           }
                         }
 
@@ -2634,6 +2788,12 @@ Ui.Panel {
                   width: dayTimelineFlick.width
                   height: 24 * dayTimelineFlick.dayHourHeight
 
+                  property bool isDrafting: false
+                  property int draftStartMinutes: 0
+                  property int draftEndMinutes: 0
+                  property real dragStartY: 0
+                  property int dragAnchorMinutes: 0
+
                   // 1. Hourly grid lines & hour labels
                   Repeater {
                     model: 24
@@ -2684,18 +2844,151 @@ Ui.Panel {
                     }
                   }
 
-                  // 2. Background click-to-add MouseArea
+                  // 2. Background drag-to-create or double-click to add MouseArea
                   MouseArea {
+                    id: dayBgMouse
                     anchors.left: parent.left
                     anchors.leftMargin: dayTimelineFlick.dayHourColWidth
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: function(mouse) {
-                      var clickedHour = Math.floor(mouse.y / dayTimelineFlick.dayHourHeight)
-                      root.startAddingEvent(clickedHour)
+                    cursorShape: dayCanvas.isDrafting ? Qt.SizeVerCursor : Qt.PointingHandCursor
+
+                    onPressed: function(mouse) {
+                      dayCanvas.dragStartY = mouse.y
+                      var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
+                      dayCanvas.dragAnchorMinutes = Math.max(0, Math.min(1425, Math.floor(rawMin / 15) * 15))
+                      dayCanvas.draftStartMinutes = dayCanvas.dragAnchorMinutes
+                      dayCanvas.draftEndMinutes = Math.min(1440, dayCanvas.dragAnchorMinutes + 60)
+                    }
+
+                    onPositionChanged: function(mouse) {
+                      if (!pressed) return
+                      var diffY = mouse.y - dayCanvas.dragStartY
+                      if (!dayCanvas.isDrafting && Math.abs(diffY) > 5) {
+                        dayCanvas.isDrafting = true
+                        dayTimelineFlick.interactive = false
+                      }
+                      if (dayCanvas.isDrafting) {
+                        var currentRawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
+                        var snappedMin = Math.round(currentRawMin / 15) * 15
+                        snappedMin = Math.max(0, Math.min(1440, snappedMin))
+
+                        if (snappedMin >= dayCanvas.dragAnchorMinutes) {
+                          dayCanvas.draftStartMinutes = dayCanvas.dragAnchorMinutes
+                          dayCanvas.draftEndMinutes = Math.max(dayCanvas.dragAnchorMinutes + 15, snappedMin)
+                        } else {
+                          dayCanvas.draftStartMinutes = Math.min(dayCanvas.dragAnchorMinutes - 15, snappedMin)
+                          dayCanvas.draftEndMinutes = dayCanvas.dragAnchorMinutes
+                        }
+                      }
+                    }
+
+                    onReleased: function() {
+                      dayTimelineFlick.interactive = true
+                      if (dayCanvas.isDrafting) {
+                        dayCanvas.isDrafting = false
+                        var startStr = Model.formatMinutes(dayCanvas.draftStartMinutes)
+                        var endStr = Model.formatMinutes(dayCanvas.draftEndMinutes)
+                        root.startAddingEventWithRange(root.selectedKey, startStr, endStr)
+                      }
+                    }
+
+                    onDoubleClicked: function(mouse) {
+                      dayCanvas.isDrafting = false
+                      dayTimelineFlick.interactive = true
+                      var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
+                      var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                      var endMin = Math.min(1440, startMin + 60)
+                      root.startAddingEventWithRange(root.selectedKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
+                    }
+                  }
+
+                  // Live Drag-to-Create Draft Card in Day View
+                  Rectangle {
+                    id: dayDraftCard
+                    visible: dayCanvas.isDrafting
+                    z: 30
+                    anchors.left: parent.left
+                    anchors.leftMargin: dayTimelineFlick.dayHourColWidth + Style.space(2)
+                    anchors.right: parent.right
+                    anchors.rightMargin: Style.space(4)
+                    y: Math.round((dayCanvas.draftStartMinutes / 60.0) * dayTimelineFlick.dayHourHeight)
+                    height: Math.max(Style.space(22), Math.round(((dayCanvas.draftEndMinutes - dayCanvas.draftStartMinutes) / 60.0) * dayTimelineFlick.dayHourHeight) - 2)
+                    radius: Math.max(3, Style.cornerRadius / 2)
+                    color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.25)
+                    border.width: 1.5
+                    border.color: Commons.Color.accent
+
+                    // Left Accent Strip
+                    Rectangle {
+                      width: Style.space(4)
+                      anchors.left: parent.left
+                      anchors.top: parent.top
+                      anchors.bottom: parent.bottom
+                      radius: parent.radius
+                      color: Commons.Color.accent
+                    }
+
+                    Column {
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(8)
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.space(6)
+                      anchors.top: parent.top
+                      anchors.topMargin: Style.space(3)
+                      anchors.bottom: parent.bottom
+                      anchors.bottomMargin: Style.space(3)
+                      spacing: Style.space(1)
+                      clip: true
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        elide: Text.ElideRight
+                        text: Model.formatMinutes(dayCanvas.draftStartMinutes) + " – " + Model.formatMinutes(dayCanvas.draftEndMinutes)
+                        color: Commons.Color.accent
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Math.max(9, Style.font.caption - 1)
+                        font.bold: true
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        elide: Text.ElideRight
+                        text: tr.t("form.newEvent")
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                      }
+                    }
+
+                    // Floating live badge attached to bottom of draft card
+                    Rectangle {
+                      z: 50
+                      anchors.horizontalCenter: parent.horizontalCenter
+                      anchors.bottom: parent.bottom
+                      anchors.bottomMargin: -Style.space(24)
+                      width: dayDraftBadgeText.implicitWidth + Style.space(12)
+                      height: Style.space(20)
+                      radius: Style.cornerRadius / 2
+                      color: Qt.rgba(0, 0, 0, 0.88)
+                      border.width: 1
+                      border.color: Commons.Color.accent
+
+                      Text {
+                        id: dayDraftBadgeText
+                        anchors.centerIn: parent
+                        textFormat: Text.PlainText
+                        text: Model.formatMinutes(dayCanvas.draftStartMinutes) + " – " + Model.formatMinutes(dayCanvas.draftEndMinutes)
+                        color: Commons.Color.accent
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
                     }
                   }
 
