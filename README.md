@@ -12,10 +12,38 @@
 
 ---
 
+## 📸 Screenshots
+
+<p align="center">
+  <b>Month View (Mês)</b><br>
+  <i>Classic month grid with event indicators, selected day agenda, and sync toolbar</i><br>
+  <img src="assets/view-month.png" alt="Month View" width="85%" />
+</p>
+
+<p align="center">
+  <b>Week View (Semana)</b><br>
+  <i>7-day columns side-by-side showing scheduled events across the week</i><br>
+  <img src="assets/view-week.png" alt="Week View" width="85%" />
+</p>
+
+<p align="center">
+  <b>Day View (Dia)</b><br>
+  <i>Hour-by-hour timeline schedule with current time indicator</i><br>
+  <img src="assets/view-day.png" alt="Day View" width="85%" />
+</p>
+
+<p align="center">
+  <b>Year View (Ano)</b><br>
+  <i>12-month bird's-eye overview showing annual event density</i><br>
+  <img src="assets/view-year.png" alt="Year View" width="85%" />
+</p>
+
+---
+
 ## ✨ Features
 
 - 🔄 **Two Sync Methods:**
-  - **Quick iCal (.ics) Link:** Connect in 30 seconds with your Google Calendar secret iCal address (no OAuth or setup needed).
+  - **Quick iCal (.ics) Link:** Connect in 30 seconds with your Google Calendar secret iCal address (no OAuth or cloud setup needed).
   - **Google Cloud OAuth2:** Full two-way sync (create, edit, and delete events directly from Omarchy).
 - 🗓️ **4 Rich View Modes:**
   - **Day:** Hour-by-hour timeline with current time indicator and event cards.
@@ -36,7 +64,7 @@
 Run this single command in your terminal:
 
 ```bash
-omarchy plugin add https://github.com/gusthx/omarchy-google-calendar.git --enable
+omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --enable
 ```
 
 > **Note:** If prompted for bar placement, select `center` (or `centerEnd`) to place it in your top bar.
