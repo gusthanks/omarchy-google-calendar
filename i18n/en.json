@@ -14,6 +14,7 @@
   "nav.previousYear": "Previous year",
   "nav.nextYear": "Next year",
   "nav.today": "Today",
+  "nav.goToToday": "Go to today",
   "nav.tomorrow": "Tomorrow",
   "nav.yesterday": "Yesterday",
   "nav.weekLabel": "Week %1 · %2",

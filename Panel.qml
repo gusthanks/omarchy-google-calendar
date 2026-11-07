@@ -114,7 +114,7 @@ Ui.Panel {
     viewYear, viewMonth, weekStart, todayKey, selectedKey, eventsByDate
   )
   readonly property var weekData: Model.weekViewModel(
-    selectedYear, selectedMonth, selectedDay, weekStart, todayKey, selectedKey, eventsByDate
+    selectedYear, selectedMonth, selectedDay, weekStart, todayKey, selectedKey, eventsByDate, nowMinutes
   )
   readonly property var dayData: Model.dayViewModel(
     selectedYear, selectedMonth, selectedDay, todayKey, nowMinutes, eventsByDate
@@ -457,6 +457,15 @@ Ui.Panel {
     var cleanId = String(eventId || "").trim()
     if (!cleanId || actionProc.running) return
     actionProc.command = [root.gcalBinPath, "delete", "--id", cleanId]
+    actionProc.running = true
+  }
+
+  function updateEventTime(eventId, dateKey, startTime, endTime) {
+    var cleanId = String(eventId || "").trim()
+    if (!cleanId || actionProc.running) return
+    var cmd = [root.gcalBinPath, "update", "--id", cleanId, "--start", startTime, "--end", endTime]
+    if (dateKey) cmd.push("--date", String(dateKey).trim())
+    actionProc.command = cmd
     actionProc.running = true
   }
 
@@ -904,7 +913,21 @@ Ui.Panel {
               Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(6)
+                spacing: Style.space(4)
+
+                Button {
+                  text: tr.t("nav.today")
+                  tooltipText: tr.t("nav.goToToday")
+                  selected: root.viewingCurrentContext
+                  bordered: true
+                  foreground: root.contentForeground
+                  accent: Commons.Color.accent
+                  fontFamily: root.contentFontFamily
+                  fontSize: Style.font.bodySmall
+                  horizontalPadding: Style.space(8)
+                  verticalPadding: Style.space(4)
+                  onClicked: root.goToToday()
+                }
 
                 Button {
                   text: tr.t("events.addShort")
@@ -932,7 +955,7 @@ Ui.Panel {
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(7)
+                  horizontalPadding: Style.space(8)
                   verticalPadding: Style.space(4)
                   onClicked: root.triggerManualSync()
                 }
@@ -946,7 +969,7 @@ Ui.Panel {
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(7)
+                  horizontalPadding: Style.space(8)
                   verticalPadding: Style.space(4)
                   onClicked: root.toggleSearch()
                 }
@@ -960,7 +983,7 @@ Ui.Panel {
                   accent: Commons.Color.accent
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
-                  horizontalPadding: Style.space(7)
+                  horizontalPadding: Style.space(8)
                   verticalPadding: Style.space(4)
                   onClicked: root.toggleSyncSettings()
                 }
@@ -1814,60 +1837,62 @@ Ui.Panel {
               id: weekViewCol
               anchors.horizontalCenter: parent.horizontalCenter
               width: root.fullGridWidth
-              spacing: Style.space(8)
+              spacing: Style.space(6)
 
-              Row {
-                spacing: Style.space(4)
+              readonly property int weekHourColWidth: Style.space(38)
+              readonly property int weekColWidth: Math.floor((root.fullGridWidth - weekHourColWidth) / 7)
+              readonly property int weekHourHeight: Style.space(40)
+
+              // 1. Day headers row (SUN 1, MON 2, ...) aligned with the 7 columns
+              Item {
                 width: parent.width
+                height: Style.space(38)
 
-                Repeater {
-                  model: root.weekData.days
+                Row {
+                  anchors.left: parent.left
+                  anchors.leftMargin: weekViewCol.weekHourColWidth
+                  anchors.right: parent.right
+                  height: parent.height
 
-                  Rectangle {
-                    required property var modelData
-                    readonly property int colWidth: Math.floor((root.fullGridWidth - 6 * Style.space(4)) / 7)
+                  Repeater {
+                    model: root.weekData.days
 
-                    width: colWidth
-                    height: Style.space(184)
-                    radius: Style.cornerRadius
-                    color: weekColMouse.containsMouse
-                      ? Style.hoverFillFor(root.contentForeground, Commons.Color.accent)
-                      : (modelData.selected
-                        ? Style.selectedFillFor(root.contentForeground, Commons.Color.accent)
-                        : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.04))
-                    border.width: (modelData.today || modelData.selected) ? Style.spacing.hairline : 0
-                    border.color: modelData.today
-                      ? Commons.Color.accent
-                      : Style.normalBorderFor(root.contentForeground, Commons.Color.accent)
+                    Rectangle {
+                      required property var modelData
+                      width: weekViewCol.weekColWidth
+                      height: parent.height
+                      radius: Style.cornerRadius / 2
+                      color: weekHeaderMouse.containsMouse
+                        ? Style.hoverFillFor(root.contentForeground, Commons.Color.accent)
+                        : (modelData.selected
+                          ? Style.selectedFillFor(root.contentForeground, Commons.Color.accent)
+                          : "transparent")
+                      border.width: (modelData.today || modelData.selected) ? Style.spacing.hairline : 0
+                      border.color: modelData.today
+                        ? Commons.Color.accent
+                        : Style.normalBorderFor(root.contentForeground, Commons.Color.accent)
 
-                    MouseArea {
-                      id: weekColMouse
-                      anchors.fill: parent
-                      hoverEnabled: true
-                      cursorShape: Qt.PointingHandCursor
-                      onClicked: root.selectDate(modelData.year, modelData.month, modelData.day)
-                      onDoubleClicked: {
-                        root.selectDate(modelData.year, modelData.month, modelData.day)
-                        root.setViewMode("day")
+                      MouseArea {
+                        id: weekHeaderMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.selectDate(modelData.year, modelData.month, modelData.day)
+                        onDoubleClicked: {
+                          root.selectDate(modelData.year, modelData.month, modelData.day)
+                          root.setViewMode("day")
+                        }
                       }
-                    }
 
-                    Column {
-                      anchors.fill: parent
-                      anchors.margins: Style.space(4)
-                      spacing: Style.space(4)
-
-                      // Day header inside the week column
                       Column {
-                        width: parent.width
-                        spacing: Style.space(1)
+                        anchors.centerIn: parent
+                        spacing: 0
 
                         Text {
                           textFormat: Text.PlainText
-                          width: parent.width
-                          horizontalAlignment: Text.AlignHCenter
+                          anchors.horizontalCenter: parent.horizontalCenter
                           text: root.weekdayLabel(modelData.weekday)
-                          color: Qt.darker(root.contentForeground, 1.5)
+                          color: modelData.today ? Commons.Color.accent : Qt.darker(root.contentForeground, 1.5)
                           font.family: root.contentFontFamily
                           font.pixelSize: Style.font.caption
                           font.bold: true
@@ -1875,101 +1900,12 @@ Ui.Panel {
 
                         Text {
                           textFormat: Text.PlainText
-                          width: parent.width
-                          horizontalAlignment: Text.AlignHCenter
+                          anchors.horizontalCenter: parent.horizontalCenter
                           text: Commons.I18n.formatNumber(modelData.day)
-                          color: modelData.today
-                            ? Commons.Color.accent
-                            : root.contentForeground
+                          color: modelData.today ? Commons.Color.accent : root.contentForeground
                           font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.body
+                          font.pixelSize: Style.font.bodySmall
                           font.bold: modelData.today || modelData.selected
-                        }
-                      }
-
-                      Rectangle {
-                        width: parent.width
-                        height: Style.spacing.hairline
-                        color: root.contentForeground
-                        opacity: 0.12
-                      }
-
-                      // Events inside this day column (up to 4 pills)
-                      Column {
-                        width: parent.width
-                        spacing: Style.space(3)
-
-                        Repeater {
-                          model: modelData.events.slice(0, 4)
-
-                          Rectangle {
-                            required property var modelData
-                            width: parent.width
-                            height: Style.space(26)
-                            radius: Math.max(2, Style.cornerRadius / 2)
-                            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
-                            clip: true
-
-                            Rectangle {
-                              width: Style.space(3)
-                              height: parent.height
-                              color: modelData.color || Commons.Color.accent
-                            }
-
-                            Column {
-                              anchors.left: parent.left
-                              anchors.right: parent.right
-                              anchors.leftMargin: Style.space(6)
-                              anchors.rightMargin: Style.space(2)
-                              anchors.verticalCenter: parent.verticalCenter
-                              spacing: 0
-
-                              Text {
-                                textFormat: Text.PlainText
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: modelData.allDay ? tr.t("events.allDay") : modelData.startTime
-                                color: Qt.darker(root.contentForeground, 1.4)
-                                font.family: root.contentFontFamily
-                                font.pixelSize: Math.max(9, Style.font.caption - 2)
-                              }
-
-                              Text {
-                                textFormat: Text.PlainText
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: modelData.title
-                                color: root.contentForeground
-                                font.family: root.contentFontFamily
-                                font.pixelSize: Math.max(10, Style.font.caption - 1)
-                                font.bold: true
-                              }
-                            }
-
-                            MouseArea {
-                              id: weekPillMouse
-                              anchors.fill: parent
-                              hoverEnabled: true
-                              acceptedButtons: Qt.NoButton
-
-                              PanelToolTip {
-                                visible: weekPillMouse.containsMouse
-                                text: Model.formatEventTooltip(modelData, tr.t("events.allDay"))
-                                fontFamily: root.contentFontFamily
-                              }
-                            }
-                          }
-                        }
-
-                        Text {
-                          visible: modelData.eventCount > 4
-                          textFormat: Text.PlainText
-                          width: parent.width
-                          horizontalAlignment: Text.AlignHCenter
-                          text: "+" + Commons.I18n.formatNumber(modelData.eventCount - 4)
-                          color: Qt.darker(root.contentForeground, 1.4)
-                          font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.caption
                         }
                       }
                     }
@@ -1977,7 +1913,410 @@ Ui.Panel {
                 }
               }
 
-              // Week stepper bar
+              // 2. All-day events row (if any day in the week has all-day events)
+              Item {
+                readonly property bool hasAllDay: {
+                  for (var d = 0; d < root.weekData.days.length; d++) {
+                    if (root.weekData.days[d].allDayEvents && root.weekData.days[d].allDayEvents.length > 0) return true
+                  }
+                  return false
+                }
+                visible: hasAllDay
+                width: parent.width
+                height: visible ? Style.space(26) : 0
+
+                Row {
+                  anchors.left: parent.left
+                  anchors.leftMargin: weekViewCol.weekHourColWidth
+                  anchors.right: parent.right
+                  height: parent.height
+
+                  Repeater {
+                    model: root.weekData.days
+
+                    Item {
+                      required property var modelData
+                      width: weekViewCol.weekColWidth
+                      height: parent.height
+                      clip: true
+
+                      Repeater {
+                        model: modelData.allDayEvents.slice(0, 1)
+
+                        Rectangle {
+                          required property var modelData
+                          anchors.fill: parent
+                          anchors.margins: Style.space(2)
+                          radius: Math.max(2, Style.cornerRadius / 2)
+                          color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.10)
+
+                          Rectangle {
+                            width: Style.space(3)
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            radius: parent.radius
+                            color: modelData.color || Commons.Color.accent
+                          }
+
+                          Text {
+                            textFormat: Text.PlainText
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(6)
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(2)
+                            anchors.verticalCenter: parent.verticalCenter
+                            elide: Text.ElideRight
+                            text: modelData.title
+                            color: root.contentForeground
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Math.max(9, Style.font.caption - 1)
+                            font.bold: true
+                          }
+
+                          MouseArea {
+                            id: weekAllDayMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: {
+                              if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl)
+                            }
+                            PanelToolTip {
+                              visible: weekAllDayMouse.containsMouse
+                              text: Model.formatEventTooltip(modelData, tr.t("events.allDay"))
+                              fontFamily: root.contentFontFamily
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 3. Scrollable continuous 7-day timeline
+              Flickable {
+                id: weekTimelineFlick
+                width: parent.width
+                height: Style.space(340)
+                contentWidth: width
+                contentHeight: 24 * weekViewCol.weekHourHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+
+                function scrollToRelevantHour() {
+                  var targetHour = Math.max(0, (root.weekData.firstEventHour || 8) - 1)
+                  contentY = Math.max(0, Math.min(contentHeight - height, targetHour * weekViewCol.weekHourHeight))
+                }
+
+                Component.onCompleted: scrollToRelevantHour()
+
+                Connections {
+                  target: root
+                  function onViewModeChanged() {
+                    if (root.viewMode === "week") weekTimelineFlick.scrollToRelevantHour()
+                  }
+                  function onSelectedKeyChanged() {
+                    if (root.viewMode === "week") weekTimelineFlick.scrollToRelevantHour()
+                  }
+                }
+
+                Item {
+                  id: weekCanvas
+                  width: weekTimelineFlick.width
+                  height: 24 * weekViewCol.weekHourHeight
+
+                  // Horizontal grid lines & hour labels
+                  Repeater {
+                    model: 24
+
+                    Item {
+                      required property int index
+                      width: weekCanvas.width
+                      height: weekViewCol.weekHourHeight
+                      y: index * weekViewCol.weekHourHeight
+
+                      // Horizontal grid divider line across all 7 columns
+                      Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: weekViewCol.weekHourColWidth
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: Style.spacing.hairline
+                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
+                      }
+
+                      // Hour label on left
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.topMargin: -Style.space(6)
+                        width: weekViewCol.weekHourColWidth - Style.space(6)
+                        horizontalAlignment: Text.AlignRight
+                        text: Model.pad2(index) + ":00"
+                        color: Qt.darker(root.contentForeground, 1.6)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Math.max(9, Style.font.caption - 1)
+                      }
+                    }
+                  }
+
+                  // 7 vertical day columns
+                  Row {
+                    anchors.left: parent.left
+                    anchors.leftMargin: weekViewCol.weekHourColWidth
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+
+                    Repeater {
+                      model: root.weekData.days
+
+                      Item {
+                        id: weekDayColItem
+                        required property var modelData
+                        width: weekViewCol.weekColWidth
+                        height: parent.height
+
+                        // Vertical divider line to right of day column
+                        Rectangle {
+                          anchors.right: parent.right
+                          anchors.top: parent.top
+                          anchors.bottom: parent.bottom
+                          width: Style.spacing.hairline
+                          color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
+                        }
+
+                        // Background click-to-add MouseArea
+                        MouseArea {
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: function(mouse) {
+                            var clickedHour = Math.floor(mouse.y / weekViewCol.weekHourHeight)
+                            root.selectDate(modelData.year, modelData.month, modelData.day)
+                            root.startAddingEvent(clickedHour)
+                          }
+                        }
+
+                        // Red / Accent "Now" line across today column (Google Calendar signature)
+                        Item {
+                          visible: modelData.today === true
+                          z: 20
+                          anchors.left: parent.left
+                          anchors.right: parent.right
+                          y: Math.round((root.nowMinutes / 60.0) * weekViewCol.weekHourHeight) - 1
+
+                          Rectangle {
+                            id: weekNowDot
+                            width: Style.space(7)
+                            height: Style.space(7)
+                            radius: width / 2
+                            color: Commons.Color.accent
+                            anchors.left: parent.left
+                            anchors.leftMargin: -width / 2
+                            anchors.verticalCenter: parent.verticalCenter
+                          }
+
+                          Rectangle {
+                            anchors.left: weekNowDot.right
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: 2
+                            color: Commons.Color.accent
+                          }
+                        }
+
+                        // Proportional Timed Events Layer
+                        Item {
+                          anchors.fill: parent
+                          anchors.margins: 1
+                          z: 10
+
+                          Repeater {
+                            model: modelData.timedEvents
+
+                            Item {
+                              id: weekEventCard
+                              required property var modelData
+
+                              readonly property int totalCols: Math.max(1, modelData.totalCols || 1)
+                              readonly property int colIndex: modelData.colIndex || 0
+                              readonly property real evColWidth: (parent.width - 2) / totalCols
+
+                              x: colIndex * evColWidth + 1
+                              width: Math.max(12, evColWidth - 2)
+
+                              property int liveStartMinutes: modelData.effectiveStartMinutes
+                              property int liveEndMinutes: modelData.effectiveEndMinutes
+                              property bool isDraggingBottom: false
+                              property real dragStartY: 0
+                              property int initialEndMinutes: 0
+
+                              y: Math.round((liveStartMinutes / 60.0) * weekViewCol.weekHourHeight)
+                              height: Math.max(Style.space(18), Math.round(((liveEndMinutes - liveStartMinutes) / 60.0) * weekViewCol.weekHourHeight) - 2)
+
+                              readonly property color cardColor: modelData.color || Commons.Color.accent
+
+                              // Card surface
+                              Rectangle {
+                                anchors.fill: parent
+                                radius: Math.max(2, Style.cornerRadius / 2)
+                                color: (isDraggingBottom || weekCardMouse.containsMouse)
+                                  ? Qt.rgba(cardColor.r, cardColor.g, cardColor.b, 0.32)
+                                  : Qt.rgba(cardColor.r, cardColor.g, cardColor.b, 0.18)
+                                border.width: (isDraggingBottom || weekCardMouse.containsMouse) ? 1.5 : 1
+                                border.color: isDraggingBottom ? Commons.Color.accent : cardColor
+
+                                // Solid left strip
+                                Rectangle {
+                                  width: Style.space(3)
+                                  anchors.left: parent.left
+                                  anchors.top: parent.top
+                                  anchors.bottom: parent.bottom
+                                  radius: parent.radius
+                                  color: weekEventCard.cardColor
+                                }
+
+                                Column {
+                                  anchors.left: parent.left
+                                  anchors.leftMargin: Style.space(5)
+                                  anchors.right: parent.right
+                                  anchors.rightMargin: Style.space(2)
+                                  anchors.top: parent.top
+                                  anchors.topMargin: Style.space(2)
+                                  anchors.bottom: parent.bottom
+                                  anchors.bottomMargin: Style.space(2)
+                                  spacing: 0
+                                  clip: true
+
+                                  Text {
+                                    textFormat: Text.PlainText
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: modelData.title
+                                    color: root.contentForeground
+                                    font.family: root.contentFontFamily
+                                    font.pixelSize: Math.max(9, Style.font.caption - 1)
+                                    font.bold: true
+                                  }
+
+                                  Text {
+                                    visible: weekEventCard.height >= Style.space(28)
+                                    textFormat: Text.PlainText
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: Model.formatMinutes(weekEventCard.liveStartMinutes) + " – " + Model.formatMinutes(weekEventCard.liveEndMinutes)
+                                    color: Qt.darker(root.contentForeground, 1.35)
+                                    font.family: root.contentFontFamily
+                                    font.pixelSize: Math.max(8, Style.font.caption - 2)
+                                  }
+
+                                  Text {
+                                    visible: Boolean(modelData.location) && weekEventCard.height >= Style.space(54)
+                                    textFormat: Text.PlainText
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: "📍 " + modelData.location
+                                    color: Qt.darker(root.contentForeground, 1.5)
+                                    font.family: root.contentFontFamily
+                                    font.pixelSize: Math.max(8, Style.font.caption - 2)
+                                  }
+                                }
+
+                                MouseArea {
+                                  id: weekCardMouse
+                                  anchors.left: parent.left
+                                  anchors.right: parent.right
+                                  anchors.top: parent.top
+                                  anchors.bottom: parent.bottom
+                                  anchors.bottomMargin: Style.space(8)
+                                  hoverEnabled: true
+                                  cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                  onClicked: {
+                                    if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl)
+                                  }
+
+                                  PanelToolTip {
+                                    visible: weekCardMouse.containsMouse && !weekEventCard.isDraggingBottom
+                                    text: Model.formatEventTooltip(modelData, tr.t("events.allDay"))
+                                    fontFamily: root.contentFontFamily
+                                  }
+                                }
+
+                                // Bottom resize handle
+                                Item {
+                                  anchors.bottom: parent.bottom
+                                  anchors.left: parent.left
+                                  anchors.right: parent.right
+                                  height: Style.space(8)
+                                  z: 25
+
+                                  MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.SizeVerCursor
+                                    onPressed: function(mouse) {
+                                      weekEventCard.isDraggingBottom = true
+                                      weekEventCard.dragStartY = mouse.y
+                                      weekEventCard.initialEndMinutes = weekEventCard.liveEndMinutes
+                                    }
+                                    onPositionChanged: function(mouse) {
+                                      if (!weekEventCard.isDraggingBottom) return
+                                      var deltaMin = Math.round((mouse.y - weekEventCard.dragStartY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
+                                      var candidate = Math.max(weekEventCard.liveStartMinutes + 15, Math.min(1440, weekEventCard.initialEndMinutes + deltaMin))
+                                      weekEventCard.liveEndMinutes = candidate
+                                    }
+                                    onReleased: function() {
+                                      if (weekEventCard.isDraggingBottom) {
+                                        weekEventCard.isDraggingBottom = false
+                                        if (weekEventCard.liveEndMinutes !== modelData.effectiveEndMinutes) {
+                                          root.updateEventTime(modelData.id, modelData.startDate, Model.formatMinutes(weekEventCard.liveStartMinutes), Model.formatMinutes(weekEventCard.liveEndMinutes))
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+
+                                // Floating badge while dragging in Week View
+                                Rectangle {
+                                  visible: weekEventCard.isDraggingBottom
+                                  z: 50
+                                  anchors.horizontalCenter: parent.horizontalCenter
+                                  anchors.bottom: parent.bottom
+                                  anchors.bottomMargin: -Style.space(22)
+                                  width: weekLiveBadgeText.implicitWidth + Style.space(10)
+                                  height: Style.space(20)
+                                  radius: Style.cornerRadius / 2
+                                  color: Qt.rgba(0, 0, 0, 0.85)
+                                  border.width: 1
+                                  border.color: Commons.Color.accent
+
+                                  Text {
+                                    id: weekLiveBadgeText
+                                    textFormat: Text.PlainText
+                                    anchors.centerIn: parent
+                                    text: Model.formatMinutes(weekEventCard.liveStartMinutes) + " – " + Model.formatMinutes(weekEventCard.liveEndMinutes)
+                                    color: Commons.Color.accent
+                                    font.family: root.contentFontFamily
+                                    font.pixelSize: Style.font.caption
+                                    font.bold: true
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 4. Week stepper bar
               Item {
                 width: parent.width
                 height: weekLabel.implicitHeight + Style.space(10)
@@ -2188,173 +2527,412 @@ Ui.Panel {
                 }
               }
 
-              // Scrollable hourly timeline for Day View
+              // Scrollable continuous hourly timeline for Day View
               Flickable {
                 id: dayTimelineFlick
                 width: parent.width
-                height: Style.space(250)
+                height: Style.space(340)
                 contentWidth: width
-                contentHeight: dayTimelineCol.implicitHeight
+                contentHeight: 24 * dayHourHeight
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
-                Column {
-                  id: dayTimelineCol
-                  width: parent.width
-                  spacing: Style.space(2)
+                readonly property int dayHourHeight: Style.space(46)
+                readonly property int dayHourColWidth: Style.space(48)
 
+                function scrollToRelevantHour() {
+                  var targetHour = Math.max(0, (root.dayData.firstEventHour || 8) - 1)
+                  contentY = Math.max(0, Math.min(contentHeight - height, targetHour * dayHourHeight))
+                }
+
+                Component.onCompleted: scrollToRelevantHour()
+
+                Connections {
+                  target: root
+                  function onViewModeChanged() {
+                    if (root.viewMode === "day") dayTimelineFlick.scrollToRelevantHour()
+                  }
+                  function onSelectedKeyChanged() {
+                    if (root.viewMode === "day") dayTimelineFlick.scrollToRelevantHour()
+                  }
+                }
+
+                Item {
+                  id: dayCanvas
+                  width: dayTimelineFlick.width
+                  height: 24 * dayTimelineFlick.dayHourHeight
+
+                  // 1. Hourly grid lines & hour labels
                   Repeater {
-                    model: root.dayData.slots
+                    model: 24
 
-                    Rectangle {
-                      required property var modelData
-                      width: dayTimelineCol.width
-                      height: Math.max(Style.space(28), slotEventsCol.implicitHeight + Style.space(8))
-                      radius: Style.cornerRadius
-                      color: modelData.isCurrentHour
-                        ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.10)
-                        : (slotHourMouse.containsMouse && !modelData.hasEvents
-                          ? Style.hoverFillFor(root.contentForeground, Commons.Color.accent)
-                          : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.03))
-                      border.width: modelData.isCurrentHour ? Style.spacing.hairline : 0
-                      border.color: Commons.Color.accent
+                    Item {
+                      required property int index
+                      width: dayCanvas.width
+                      height: dayTimelineFlick.dayHourHeight
+                      y: index * dayTimelineFlick.dayHourHeight
 
-                      MouseArea {
-                        id: slotHourMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.startAddingEvent(modelData.hour)
+                      // Horizontal grid divider
+                      Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: dayTimelineFlick.dayHourColWidth
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: Style.spacing.hairline
+                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.08)
                       }
 
-                      Text {
-                        id: hourTag
-                        textFormat: Text.PlainText
-                        width: Style.space(52)
+                      // Subtle half-hour dashed line
+                      Rectangle {
                         anchors.left: parent.left
-                        anchors.leftMargin: Style.space(8)
+                        anchors.leftMargin: dayTimelineFlick.dayHourColWidth + Style.space(8)
+                        anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.topMargin: Style.space(6)
-                        text: modelData.label
-                        color: modelData.isCurrentHour
+                        anchors.topMargin: Math.floor(dayTimelineFlick.dayHourHeight / 2)
+                        height: Style.spacing.hairline
+                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.04)
+                      }
+
+                      // Hour label
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.topMargin: -Style.space(6)
+                        width: dayTimelineFlick.dayHourColWidth - Style.space(8)
+                        horizontalAlignment: Text.AlignRight
+                        text: Model.pad2(index) + ":00"
+                        color: (root.dayData.isToday && Math.floor(root.nowMinutes / 60) === index)
                           ? Commons.Color.accent
                           : Qt.darker(root.contentForeground, 1.6)
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
-                        font.bold: modelData.isCurrentHour
+                        font.bold: root.dayData.isToday && Math.floor(root.nowMinutes / 60) === index
                       }
+                    }
+                  }
 
-                      Column {
-                        id: slotEventsCol
-                        anchors.left: hourTag.right
-                        anchors.right: parent.right
-                        anchors.rightMargin: Style.space(6)
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Style.space(3)
+                  // 2. Background click-to-add MouseArea
+                  MouseArea {
+                    anchors.left: parent.left
+                    anchors.leftMargin: dayTimelineFlick.dayHourColWidth
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: function(mouse) {
+                      var clickedHour = Math.floor(mouse.y / dayTimelineFlick.dayHourHeight)
+                      root.startAddingEvent(clickedHour)
+                    }
+                  }
 
-                        Repeater {
-                          model: modelData.events
+                  // 3. Current Time Red / Accent Line (when isToday)
+                  Item {
+                    visible: root.dayData.isToday
+                    z: 20
+                    anchors.left: parent.left
+                    anchors.leftMargin: dayTimelineFlick.dayHourColWidth - Style.space(5)
+                    anchors.right: parent.right
+                    y: Math.round((root.nowMinutes / 60.0) * dayTimelineFlick.dayHourHeight) - 1
 
+                    Rectangle {
+                      id: dayNowDot
+                      width: Style.space(9)
+                      height: Style.space(9)
+                      radius: width / 2
+                      color: Commons.Color.accent
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                      anchors.left: dayNowDot.right
+                      anchors.right: parent.right
+                      anchors.verticalCenter: parent.verticalCenter
+                      height: 2
+                      color: Commons.Color.accent
+                    }
+                  }
+
+                  // 4. Proportional Timed Event Blocks
+                  Item {
+                    id: dayEventsLayer
+                    anchors.left: parent.left
+                    anchors.leftMargin: dayTimelineFlick.dayHourColWidth + Style.space(2)
+                    anchors.right: parent.right
+                    anchors.rightMargin: Style.space(4)
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    z: 10
+
+                    Repeater {
+                      model: root.dayData.timedEvents
+
+                      Item {
+                        id: dayEventCard
+                        required property var modelData
+
+                        readonly property int totalCols: Math.max(1, modelData.totalCols || 1)
+                        readonly property int colIndex: modelData.colIndex || 0
+                        readonly property real colWidth: (dayEventsLayer.width - (totalCols - 1) * Style.space(4)) / totalCols
+
+                        x: colIndex * (colWidth + Style.space(4))
+                        width: Math.max(Style.space(40), colWidth)
+
+                        property int liveStartMinutes: modelData.effectiveStartMinutes
+                        property int liveEndMinutes: modelData.effectiveEndMinutes
+                        property bool isDraggingBottom: false
+                        property bool isDraggingTop: false
+                        property real dragStartY: 0
+                        property int initialStartMinutes: 0
+                        property int initialEndMinutes: 0
+
+                        y: Math.round((liveStartMinutes / 60.0) * dayTimelineFlick.dayHourHeight)
+                        height: Math.max(Style.space(24), Math.round(((liveEndMinutes - liveStartMinutes) / 60.0) * dayTimelineFlick.dayHourHeight) - 2)
+
+                        readonly property color cardColor: modelData.color || Commons.Color.accent
+
+                        // Card Surface
+                        Rectangle {
+                          id: dayCardBg
+                          anchors.fill: parent
+                          radius: Math.max(3, Style.cornerRadius / 2)
+                          color: (isDraggingBottom || isDraggingTop)
+                            ? Qt.rgba(cardColor.r, cardColor.g, cardColor.b, 0.32)
+                            : (dayCardMouse.containsMouse
+                              ? Qt.rgba(cardColor.r, cardColor.g, cardColor.b, 0.24)
+                              : Qt.rgba(cardColor.r, cardColor.g, cardColor.b, 0.16))
+                          border.width: (isDraggingBottom || isDraggingTop || dayCardMouse.containsMouse) ? 1.5 : 1
+                          border.color: (isDraggingBottom || isDraggingTop) ? Commons.Color.accent : cardColor
+
+                          // Solid left accent bar
                           Rectangle {
-                            required property var modelData
-                            readonly property bool hasDescription: Boolean(modelData.description && String(modelData.description).length > 0)
-                            width: slotEventsCol.width
-                            height: hasDescription ? Style.space(40) : Style.space(26)
-                            radius: Math.max(2, Style.cornerRadius / 2)
-                            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.09)
+                            width: Style.space(4)
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            radius: parent.radius
+                            color: dayEventCard.cardColor
+                          }
 
-                            Rectangle {
-                              width: Style.space(4)
-                              height: parent.height
-                              radius: parent.radius
-                              color: modelData.color || Commons.Color.accent
-                            }
+                          // Card Content
+                          Column {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(8)
+                            anchors.right: dayEventActions.left
+                            anchors.rightMargin: Style.space(4)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(3)
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: Style.space(4)
+                            spacing: Style.space(1)
+                            clip: true
 
                             Text {
-                              id: evTimeTag
                               textFormat: Text.PlainText
-                              anchors.left: parent.left
-                              anchors.leftMargin: Style.space(10)
-                              anchors.verticalCenter: parent.verticalCenter
-                              text: modelData.timeLabel
-                              color: Qt.darker(root.contentForeground, 1.35)
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: Model.formatMinutes(dayEventCard.liveStartMinutes) + " – " + Model.formatMinutes(dayEventCard.liveEndMinutes)
+                              color: Qt.darker(root.contentForeground, 1.3)
                               font.family: root.contentFontFamily
-                              font.pixelSize: Style.font.caption
+                              font.pixelSize: Math.max(9, Style.font.caption - 1)
                               font.bold: true
                             }
 
-                            Column {
-                              anchors.left: evTimeTag.right
-                              anchors.leftMargin: Style.space(8)
-                              anchors.right: slotEvActions.left
-                              anchors.rightMargin: Style.space(6)
-                              anchors.verticalCenter: parent.verticalCenter
-                              spacing: Style.space(1)
-
-                              Text {
-                                textFormat: Text.PlainText
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: modelData.title + (modelData.location ? " · " + modelData.location : "")
-                                color: root.contentForeground
-                                font.family: root.contentFontFamily
-                                font.pixelSize: Style.font.bodySmall
-                                font.bold: true
-                              }
-
-                              Text {
-                                visible: parent.parent.hasDescription
-                                textFormat: Text.PlainText
-                                width: parent.width
-                                elide: Text.ElideRight
-                                text: modelData.description || ""
-                                color: Qt.darker(root.contentForeground, 1.45)
-                                font.family: root.contentFontFamily
-                                font.pixelSize: Style.font.caption
-                              }
+                            Text {
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: modelData.title
+                              color: root.contentForeground
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.bodySmall
+                              font.bold: true
                             }
 
-                            // Absorbs clicks on the event card so they do not fall through to slotHourMouse
+                            Text {
+                              visible: Boolean(modelData.location) && dayEventCard.height >= Style.space(52)
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: "📍 " + modelData.location
+                              color: Qt.darker(root.contentForeground, 1.45)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                            }
+
+                            Text {
+                              visible: Boolean(modelData.description) && dayEventCard.height >= Style.space(72)
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: modelData.description
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                            }
+                          }
+
+                          // Actions: Meet link & delete button
+                          Row {
+                            id: dayEventActions
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(4)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(2)
+                            spacing: Style.space(2)
+                            z: 15
+
+                            PanelActionButton {
+                              visible: modelData.actionUrl !== "" && dayEventCard.height >= Style.space(26)
+                              iconText: "󰌹"
+                              tooltipText: tr.t("events.openLink")
+                              foreground: root.contentForeground
+                              fontFamily: root.contentFontFamily
+                              onClicked: root.openExternalUrl(modelData.actionUrl)
+                            }
+
+                            PanelActionButton {
+                              visible: dayEventCard.height >= Style.space(26)
+                              iconText: "󰆴"
+                              tooltipText: tr.t("events.delete")
+                              foreground: root.contentForeground
+                              fontFamily: root.contentFontFamily
+                              onClicked: root.deleteEvent(modelData.id)
+                            }
+                          }
+
+                          // Card Click MouseArea (between top and bottom handles)
+                          MouseArea {
+                            id: dayCardMouse
+                            anchors.left: parent.left
+                            anchors.right: dayEventActions.left
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(8)
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: Style.space(10)
+                            hoverEnabled: true
+                            cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: {
+                              if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl)
+                            }
+
+                            PanelToolTip {
+                              visible: dayCardMouse.containsMouse && !dayEventCard.isDraggingBottom && !dayEventCard.isDraggingTop
+                              text: Model.formatEventTooltip(modelData, tr.t("events.allDay"))
+                              fontFamily: root.contentFontFamily
+                            }
+                          }
+
+                          // Top Resize Handle
+                          Item {
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: Style.space(8)
+                            z: 25
+
                             MouseArea {
-                              id: slotEvCardMouse
-                              anchors.left: parent.left
-                              anchors.right: slotEvActions.left
-                              anchors.top: parent.top
-                              anchors.bottom: parent.bottom
+                              anchors.fill: parent
                               hoverEnabled: true
-                              cursorShape: modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
-                              onClicked: { if (modelData.actionUrl !== "") root.openExternalUrl(modelData.actionUrl) }
-
-                              PanelToolTip {
-                                visible: slotEvCardMouse.containsMouse
-                                text: Model.formatEventTooltip(modelData, tr.t("events.allDay"))
-                                fontFamily: root.contentFontFamily
+                              cursorShape: Qt.SizeVerCursor
+                              onPressed: function(mouse) {
+                                dayEventCard.isDraggingTop = true
+                                dayEventCard.dragStartY = mouse.y
+                                dayEventCard.initialStartMinutes = dayEventCard.liveStartMinutes
+                              }
+                              onPositionChanged: function(mouse) {
+                                if (!dayEventCard.isDraggingTop) return
+                                var deltaMin = Math.round((mouse.y - dayEventCard.dragStartY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                                var candidate = Math.max(0, Math.min(dayEventCard.liveEndMinutes - 15, dayEventCard.initialStartMinutes + deltaMin))
+                                dayEventCard.liveStartMinutes = candidate
+                              }
+                              onReleased: function() {
+                                if (dayEventCard.isDraggingTop) {
+                                  dayEventCard.isDraggingTop = false
+                                  if (dayEventCard.liveStartMinutes !== modelData.effectiveStartMinutes) {
+                                    root.updateEventTime(modelData.id, root.dayData.key, Model.formatMinutes(dayEventCard.liveStartMinutes), Model.formatMinutes(dayEventCard.liveEndMinutes))
+                                  }
+                                }
                               }
                             }
+                          }
 
-                            Row {
-                              id: slotEvActions
-                              anchors.right: parent.right
-                              anchors.rightMargin: Style.space(4)
-                              anchors.verticalCenter: parent.verticalCenter
-                              spacing: Style.space(4)
+                          // Bottom Resize Handle
+                          Item {
+                            id: dayBottomHandle
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: Style.space(10)
+                            z: 25
 
-                              PanelActionButton {
-                                visible: modelData.actionUrl !== ""
-                                iconText: "󰌹"
-                                tooltipText: tr.t("events.openLink")
-                                foreground: root.contentForeground
-                                fontFamily: root.contentFontFamily
-                                onClicked: root.openExternalUrl(modelData.actionUrl)
+                            // Visual drag grip pill on hover or dragging
+                            Rectangle {
+                              anchors.horizontalCenter: parent.horizontalCenter
+                              anchors.bottom: parent.bottom
+                              anchors.bottomMargin: Style.space(2)
+                              width: Style.space(22)
+                              height: 2
+                              radius: 1
+                              color: (dayBottomMouse.containsMouse || dayEventCard.isDraggingBottom)
+                                ? Commons.Color.accent
+                                : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.3)
+                            }
+
+                            MouseArea {
+                              id: dayBottomMouse
+                              anchors.fill: parent
+                              hoverEnabled: true
+                              cursorShape: Qt.SizeVerCursor
+                              onPressed: function(mouse) {
+                                dayEventCard.isDraggingBottom = true
+                                dayEventCard.dragStartY = mouse.y
+                                dayEventCard.initialEndMinutes = dayEventCard.liveEndMinutes
                               }
-
-                              PanelActionButton {
-                                iconText: "󰆴"
-                                tooltipText: tr.t("events.delete")
-                                foreground: root.contentForeground
-                                fontFamily: root.contentFontFamily
-                                onClicked: root.deleteEvent(modelData.id)
+                              onPositionChanged: function(mouse) {
+                                if (!dayEventCard.isDraggingBottom) return
+                                var deltaMin = Math.round((mouse.y - dayEventCard.dragStartY) / (dayTimelineFlick.dayHourHeight / 60.0) / 15.0) * 15
+                                var candidate = Math.max(dayEventCard.liveStartMinutes + 15, Math.min(1440, dayEventCard.initialEndMinutes + deltaMin))
+                                dayEventCard.liveEndMinutes = candidate
                               }
+                              onReleased: function() {
+                                if (dayEventCard.isDraggingBottom) {
+                                  dayEventCard.isDraggingBottom = false
+                                  if (dayEventCard.liveEndMinutes !== modelData.effectiveEndMinutes) {
+                                    root.updateEventTime(modelData.id, root.dayData.key, Model.formatMinutes(dayEventCard.liveStartMinutes), Model.formatMinutes(dayEventCard.liveEndMinutes))
+                                  }
+                                }
+                              }
+                            }
+                          }
+
+                          // Floating live time badge when resizing
+                          Rectangle {
+                            visible: dayEventCard.isDraggingBottom || dayEventCard.isDraggingTop
+                            z: 50
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.top: dayEventCard.isDraggingTop ? parent.top : undefined
+                            anchors.bottom: dayEventCard.isDraggingBottom ? parent.bottom : undefined
+                            anchors.topMargin: dayEventCard.isDraggingTop ? -Style.space(26) : 0
+                            anchors.bottomMargin: dayEventCard.isDraggingBottom ? -Style.space(26) : 0
+                            width: dayLiveBadgeText.implicitWidth + Style.space(12)
+                            height: Style.space(22)
+                            radius: Style.cornerRadius / 2
+                            color: Qt.rgba(0, 0, 0, 0.85)
+                            border.width: 1
+                            border.color: Commons.Color.accent
+
+                            Text {
+                              id: dayLiveBadgeText
+                              textFormat: Text.PlainText
+                              anchors.centerIn: parent
+                              text: Model.formatMinutes(dayEventCard.liveStartMinutes) + " – " + Model.formatMinutes(dayEventCard.liveEndMinutes)
+                              color: Commons.Color.accent
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                              font.bold: true
                             }
                           }
                         }

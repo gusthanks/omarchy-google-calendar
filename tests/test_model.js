@@ -281,3 +281,74 @@ test("yearViewModel suppresses today and selected for days outside the month", (
   }
   assert.equal(foundToday, true);
 });
+
+test("layoutTimedEvents computes parallel columns for overlapping events", () => {
+  // Test case 1: Single non-overlapping event
+  const single = Model.layoutTimedEvents([
+    { title: "Solo Event", effectiveStartMinutes: 480, effectiveEndMinutes: 540 }
+  ]);
+  assert.equal(single.length, 1);
+  assert.equal(single[0].colIndex, 0);
+  assert.equal(single[0].totalCols, 1);
+
+  // Test case 2: Two overlapping events (8:00 - 10:00 and 9:00 - 11:00)
+  const overlapping = Model.layoutTimedEvents([
+    { title: "Event A", effectiveStartMinutes: 480, effectiveEndMinutes: 600 },
+    { title: "Event B", effectiveStartMinutes: 540, effectiveEndMinutes: 660 }
+  ]);
+  assert.equal(overlapping.length, 2);
+  assert.equal(overlapping[0].colIndex, 0);
+  assert.equal(overlapping[0].totalCols, 2);
+  assert.equal(overlapping[1].colIndex, 1);
+  assert.equal(overlapping[1].totalCols, 2);
+
+  // Test case 3: Consecutive non-overlapping events (8:00-9:00 and 9:00-10:00)
+  const consecutive = Model.layoutTimedEvents([
+    { title: "First", effectiveStartMinutes: 480, effectiveEndMinutes: 540 },
+    { title: "Second", effectiveStartMinutes: 540, effectiveEndMinutes: 600 }
+  ]);
+  assert.equal(consecutive.length, 2);
+  assert.equal(consecutive[0].colIndex, 0);
+  assert.equal(consecutive[0].totalCols, 1);
+  assert.equal(consecutive[1].colIndex, 0);
+  assert.equal(consecutive[1].totalCols, 1);
+});
+
+test("dayViewModel and weekViewModel produce laid out timed events with positions", () => {
+  const eventsByDate = {
+    "2026-11-06": [
+      Model.sanitizeEvent({
+        id: "ev1",
+        title: "Will",
+        startDate: "2026-11-06",
+        startTime: "08:00",
+        endTime: "18:00"
+      }),
+      Model.sanitizeEvent({
+        id: "ev2",
+        title: "Afternoon Standup",
+        startDate: "2026-11-06",
+        startTime: "14:00",
+        endTime: "14:30"
+      })
+    ]
+  };
+
+  const dayData = Model.dayViewModel(2026, 10, 6, "2026-11-07", 720, eventsByDate);
+  assert.equal(dayData.timedEvents.length, 2);
+  // Will event (8:00-18:00) overlaps with Afternoon Standup (14:00-14:30)
+  assert.equal(dayData.timedEvents[0].effectiveStartMinutes, 480);
+  assert.equal(dayData.timedEvents[0].effectiveEndMinutes, 1080);
+  assert.equal(dayData.timedEvents[0].durationMinutes, 600); // 10 hours!
+  assert.equal(dayData.timedEvents[0].totalCols, 2);
+  assert.equal(dayData.timedEvents[1].totalCols, 2);
+  assert.equal(dayData.firstEventHour, 8);
+
+  // In week view, Friday Nov 6 must also have laid-out timed events
+  const weekData = Model.weekViewModel(2026, 10, 7, 0, "2026-11-07", "2026-11-07", eventsByDate, 720);
+  const friday = weekData.days.find(d => d.key === "2026-11-06");
+  assert.ok(friday);
+  assert.equal(friday.timedEvents.length, 2);
+  assert.equal(friday.timedEvents[0].totalCols, 2);
+  assert.equal(friday.timedEvents[0].durationMinutes, 600);
+});

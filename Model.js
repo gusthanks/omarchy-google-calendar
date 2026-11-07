@@ -574,17 +574,19 @@ function monthGridWithEvents(year, month, weekStart, todayKey, selectedKey, even
   return outWeeks
 }
 
-function weekViewModel(year, month, day, weekStart, todayKey, selectedKey, eventsByDate) {
+function weekViewModel(year, month, day, weekStart, todayKey, selectedKey, eventsByDate, nowMinutes) {
   var start = normalizedWeekStart(weekStart, 1)
   var target = new Date(Date.UTC(Number(year), Number(month), Number(day)))
   var leading = (target.getUTCDay() - start + 7) % 7
   var cursor = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate() - leading))
   var today = String(todayKey || "")
   var sel = String(selectedKey || "")
+  var nowMins = typeof nowMinutes === "number" ? nowMinutes : -1
 
   var days = []
   var thursday = null
   var totalEvents = 0
+  var firstEventHour = 8
 
   for (var i = 0; i < 7; i++) {
     var cy = cursor.getUTCFullYear()
@@ -598,8 +600,26 @@ function weekViewModel(year, month, day, weekStart, todayKey, selectedKey, event
     var allDayList = []
     var timedList = []
     for (var j = 0; j < evs.length; j++) {
-      if (evs[j].allDay) allDayList.push(evs[j])
-      else timedList.push(evs[j])
+      var ev = evs[j]
+      if (ev.allDay) {
+        allDayList.push(ev)
+      } else {
+        var eff = effectiveMinutesForDate(ev, key)
+        var copy = {}
+        for (var k in ev) copy[k] = ev[k]
+        copy.effectiveStartMinutes = eff.startMinutes
+        copy.effectiveEndMinutes = eff.endMinutes
+        copy.timeLabel = eff.timeLabel
+        copy.durationMinutes = Math.max(15, eff.endMinutes - eff.startMinutes)
+        copy.isHappeningNow = (key === today) && nowMins >= eff.startMinutes && nowMins < eff.endMinutes
+        copy.isPast = (key === today) && nowMins >= eff.endMinutes
+        timedList.push(copy)
+      }
+    }
+    var laidOutTimed = layoutTimedEvents(timedList)
+    if (laidOutTimed.length > 0) {
+      var earliest = Math.floor(laidOutTimed[0].effectiveStartMinutes / 60)
+      if (earliest < firstEventHour) firstEventHour = earliest
     }
     totalEvents += evs.length
 
@@ -614,7 +634,7 @@ function weekViewModel(year, month, day, weekStart, todayKey, selectedKey, event
       selected: key === sel,
       events: evs,
       allDayEvents: allDayList,
-      timedEvents: timedList,
+      timedEvents: laidOutTimed,
       eventCount: evs.length,
       hasEvents: evs.length > 0,
       dotColors: dotColorsForEvents(evs, 3)
@@ -634,8 +654,76 @@ function weekViewModel(year, month, day, weekStart, todayKey, selectedKey, event
     endMonth: days[6].month,
     endDay: days[6].day,
     totalEvents: totalEvents,
+    firstEventHour: firstEventHour,
     days: days
   }
+}
+
+function layoutTimedEvents(timedEvents) {
+  if (!timedEvents || timedEvents.length === 0) return []
+  var list = timedEvents.slice()
+
+  // Sort by start time ascending, then duration descending
+  list.sort(function(a, b) {
+    if (a.effectiveStartMinutes !== b.effectiveStartMinutes)
+      return a.effectiveStartMinutes - b.effectiveStartMinutes
+    var durA = (a.effectiveEndMinutes || 0) - (a.effectiveStartMinutes || 0)
+    var durB = (b.effectiveEndMinutes || 0) - (b.effectiveStartMinutes || 0)
+    if (durA !== durB) return durB - durA
+    return (a.title || "") < (b.title || "") ? -1 : 1
+  })
+
+  // Partition into overlapping clusters
+  var clusters = []
+  var currentCluster = []
+  var clusterMaxEnd = -1
+
+  for (var i = 0; i < list.length; i++) {
+    var ev = list[i]
+    var start = ev.effectiveStartMinutes
+    var end = Math.max(start + 15, ev.effectiveEndMinutes)
+    if (currentCluster.length === 0 || start < clusterMaxEnd) {
+      currentCluster.push(ev)
+      if (end > clusterMaxEnd) clusterMaxEnd = end
+    } else {
+      clusters.push(currentCluster)
+      currentCluster = [ev]
+      clusterMaxEnd = end
+    }
+  }
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster)
+  }
+
+  // Assign columns within each cluster using interval coloring
+  for (var c = 0; c < clusters.length; c++) {
+    var cluster = clusters[c]
+    var colEnds = []
+    for (var j = 0; j < cluster.length; j++) {
+      var cev = cluster[j]
+      var cStart = cev.effectiveStartMinutes
+      var cEnd = Math.max(cStart + 15, cev.effectiveEndMinutes)
+      var placedCol = -1
+      for (var col = 0; col < colEnds.length; col++) {
+        if (colEnds[col] <= cStart) {
+          placedCol = col
+          colEnds[col] = cEnd
+          break
+        }
+      }
+      if (placedCol === -1) {
+        placedCol = colEnds.length
+        colEnds.push(cEnd)
+      }
+      cev.colIndex = placedCol
+    }
+    var numCols = Math.max(1, colEnds.length)
+    for (var k = 0; k < cluster.length; k++) {
+      cluster[k].totalCols = numCols
+    }
+  }
+
+  return list
 }
 
 function effectiveMinutesForDate(ev, key) {
@@ -731,32 +819,22 @@ function dayViewModel(year, month, day, todayKey, nowMinutes, eventsByDate) {
     }
   }
 
-  timedEvents.sort(function(a, b) {
-    if (a.effectiveStartMinutes !== b.effectiveStartMinutes)
-      return a.effectiveStartMinutes - b.effectiveStartMinutes
-    if (a.effectiveEndMinutes !== b.effectiveEndMinutes)
-      return a.effectiveEndMinutes - b.effectiveEndMinutes
-    return a.title < b.title ? -1 : (a.title > b.title ? 1 : 0)
-  })
+  var laidOut = layoutTimedEvents(timedEvents)
 
-  // Build hourly schedule slots: include standard waking hours (08:00..20:00)
-  // plus any hours that hold timed events on this date.
-  var minHour = 8
-  var maxHour = 20
-  for (var t = 0; t < timedEvents.length; t++) {
-    var sh = Math.floor(timedEvents[t].effectiveStartMinutes / 60)
-    var eh = Math.min(23, Math.floor(Math.max(0, timedEvents[t].effectiveEndMinutes - 1) / 60))
-    if (sh < minHour) minHour = sh
-    if (eh > maxHour) maxHour = eh
+  var firstEventHour = 8
+  if (laidOut.length > 0) {
+    firstEventHour = Math.max(0, Math.min(23, Math.floor(laidOut[0].effectiveStartMinutes / 60)))
+  } else if (isToday && nowMins >= 0) {
+    firstEventHour = Math.max(0, Math.min(23, Math.floor(nowMins / 60)))
   }
 
   var slots = []
-  for (var h = minHour; h <= maxHour; h++) {
+  for (var h = 0; h < 24; h++) {
     var slotStart = h * 60
     var slotEnd = (h + 1) * 60
     var slotEvents = []
-    for (var j = 0; j < timedEvents.length; j++) {
-      var tev = timedEvents[j]
+    for (var j = 0; j < laidOut.length; j++) {
+      var tev = laidOut[j]
       if (tev.effectiveStartMinutes >= slotStart && tev.effectiveStartMinutes < slotEnd) {
         slotEvents.push(tev)
       }
@@ -780,7 +858,8 @@ function dayViewModel(year, month, day, todayKey, nowMinutes, eventsByDate) {
     isToday: isToday,
     dayDiff: dayDiff,
     allDayEvents: allDayEvents,
-    timedEvents: timedEvents,
+    timedEvents: laidOut,
+    firstEventHour: firstEventHour,
     allEvents: rawEvents,
     eventCount: rawEvents.length,
     slots: slots
@@ -1017,6 +1096,7 @@ if (typeof module !== "undefined") {
     yearViewModel: yearViewModel,
     upcomingEventSummary: upcomingEventSummary,
     validateQuickEvent: validateQuickEvent,
-    searchEvents: searchEvents
+    searchEvents: searchEvents,
+    layoutTimedEvents: layoutTimedEvents
   }
 }

@@ -1374,6 +1374,105 @@ def cmd_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    event_id = clean_str(args.id, 128)
+    if not event_id:
+        print("Error: missing event ID", file=sys.stderr)
+        return 1
+
+    start_time = clean_str(getattr(args, "start", "") or "", 5)
+    end_time = clean_str(getattr(args, "end", "") or "", 5)
+    date_str = clean_str(getattr(args, "date", "") or "", 10)
+    title = clean_str(getattr(args, "title", "") or "", 200)
+
+    cfg = load_config()
+
+    # 1. Update in local_events.json if local
+    if event_id.startswith("local:"):
+        events = load_local_events()
+        for ev in events:
+            if ev.get("id") == event_id:
+                if start_time:
+                    ev["startTime"] = start_time
+                if end_time:
+                    ev["endTime"] = end_time
+                if date_str:
+                    ev["startDate"] = date_str
+                    ev["endDate"] = date_str
+                if title:
+                    ev["title"] = title
+                break
+        save_local_events(events)
+
+    # 2. Update remote Google Calendar if gcal
+    elif event_id.startswith("gcal:"):
+        parts = event_id.split(":", 2)
+        if len(parts) == 3:
+            _, cal_id, remote_id = parts
+            access_token = get_valid_access_token(cfg)
+            if access_token:
+                tz = local_tz()
+                cache = load_json(EVENTS_CACHE_FILE, {})
+                cached_ev = None
+                for ev in cache.get("events", []) if isinstance(cache, dict) else []:
+                    if ev.get("id") == event_id:
+                        cached_ev = ev
+                        break
+
+                ev_date = date_str or (cached_ev.get("startDate") if cached_ev else "")
+                if not ev_date:
+                    ev_date = datetime.datetime.now(tz).strftime("%Y-%m-%d")
+
+                encoded_cal = urllib.parse.quote(cal_id, safe="")
+                encoded_ev = urllib.parse.quote(remote_id, safe="")
+                url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events/{encoded_ev}"
+
+                now_dt = datetime.datetime.now(tz)
+                tz_offset = now_dt.strftime("%z")
+                if len(tz_offset) == 5:
+                    tz_offset = tz_offset[:3] + ":" + tz_offset[3:]
+                tz_name = getattr(tz, "key", str(tz))
+
+                patch_body = {}
+                if start_time:
+                    patch_body["start"] = {
+                        "dateTime": f"{ev_date}T{start_time}:00{tz_offset}",
+                        "timeZone": tz_name,
+                    }
+                if end_time:
+                    patch_body["end"] = {
+                        "dateTime": f"{ev_date}T{end_time}:00{tz_offset}",
+                        "timeZone": tz_name,
+                    }
+                if title:
+                    patch_body["summary"] = title
+
+                try:
+                    google_api_request("PATCH", url, access_token, payload=patch_body, cfg=cfg)
+                except Exception as ex:
+                    print(f"Warning: remote update failed: {ex}", file=sys.stderr)
+
+    # 3. Always update the cached event in EVENTS_CACHE_FILE immediately
+    cache = load_json(EVENTS_CACHE_FILE, {})
+    if isinstance(cache, dict) and "events" in cache:
+        for ev in cache["events"]:
+            if ev.get("id") == event_id:
+                if start_time:
+                    ev["startTime"] = start_time
+                if end_time:
+                    ev["endTime"] = end_time
+                if date_str:
+                    ev["startDate"] = date_str
+                    ev["endDate"] = date_str
+                if title:
+                    ev["title"] = title
+                break
+        atomic_write_json(EVENTS_CACHE_FILE, cache, mode=0o600)
+
+    return 0
+
+
 def cmd_set_ics(args: argparse.Namespace) -> int:
     ensure_dirs()
     cfg = load_config()
@@ -1569,6 +1668,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_del = sub.add_parser("delete", help="Delete a calendar event")
     p_del.add_argument("--id", required=True)
 
+    p_upd = sub.add_parser("update", help="Update a calendar event's time, date, or title")
+    p_upd.add_argument("--id", required=True)
+    p_upd.add_argument("--start", default="", help="HH:MM")
+    p_upd.add_argument("--end", default="", help="HH:MM")
+    p_upd.add_argument("--date", default="", help="YYYY-MM-DD")
+    p_upd.add_argument("--title", default="")
+
     p_ics = sub.add_parser("set-ics", help="Configure Google Calendar secret iCal (.ics) URL")
     p_ics.add_argument("url", nargs="?", default="")
 
@@ -1679,6 +1785,8 @@ def main() -> int:
         return cmd_add(args)
     if cmd == "delete":
         return cmd_delete(args)
+    if cmd == "update":
+        return cmd_update(args)
     if cmd == "set-ics":
         return cmd_set_ics(args)
     if cmd == "auth":

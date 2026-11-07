@@ -254,6 +254,89 @@ class TestGcalBackendIntegration(unittest.TestCase):
         cache_after = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
         self.assertEqual(len(cache_after.get("events", [])), 0)
 
+    def test_cmd_update_local_event(self):
+        import argparse
+        args_add = argparse.Namespace(
+            title="Draggable Meeting",
+            date="2026-11-15",
+            end_date="2026-11-15",
+            start="08:00",
+            end="10:00",
+            all_day=False,
+            location="Room 2",
+            description="Testing update",
+            color="#039be5"
+        )
+        self.assertEqual(gcal.cmd_add(args_add), 0)
+        cache = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
+        ev_id = cache["events"][0]["id"]
+
+        # Resize duration by dragging bottom edge to 12:30
+        args_upd = argparse.Namespace(
+            id=ev_id,
+            start="08:00",
+            end="12:30",
+            date="2026-11-15",
+            title="Draggable Meeting (Extended)"
+        )
+        self.assertEqual(gcal.cmd_update(args_upd), 0)
+
+        cache_updated = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
+        ev_updated = cache_updated["events"][0]
+        self.assertEqual(ev_updated["startTime"], "08:00")
+        self.assertEqual(ev_updated["endTime"], "12:30")
+        self.assertEqual(ev_updated["title"], "Draggable Meeting (Extended)")
+
+        # Verify local_events.json was also updated
+        locals_list = gcal.load_local_events()
+        self.assertEqual(locals_list[0]["endTime"], "12:30")
+
+    def test_cmd_update_gcal_oauth_event(self):
+        import argparse
+        ev_id = "gcal:primary:remote_12345"
+        # Seed cache with remote event
+        initial_cache = {
+            "version": 1,
+            "source": "oauth",
+            "events": [{
+                "id": ev_id,
+                "remoteId": "remote_12345",
+                "calendarId": "primary",
+                "title": "Will",
+                "startDate": "2026-11-06",
+                "endDate": "2026-11-06",
+                "startTime": "08:00",
+                "endTime": "18:00",
+                "source": "oauth"
+            }]
+        }
+        gcal.atomic_write_json(gcal.EVENTS_CACHE_FILE, initial_cache)
+
+        patch_called = []
+        def mock_google_api_request(method, url, token, payload=None, cfg=None):
+            patch_called.append((method, url, payload))
+            return {"id": "remote_12345"}
+
+        with patch.object(gcal, "get_valid_access_token", return_value="valid_mock_token"):
+            with patch.object(gcal, "google_api_request", side_effect=mock_google_api_request):
+                args_upd = argparse.Namespace(
+                    id=ev_id,
+                    start="08:00",
+                    end="17:00",
+                    date="2026-11-06",
+                    title=""
+                )
+                ret = gcal.cmd_update(args_upd)
+                self.assertEqual(ret, 0)
+                self.assertEqual(len(patch_called), 1)
+                self.assertEqual(patch_called[0][0], "PATCH")
+                self.assertIn("calendars/primary/events/remote_12345", patch_called[0][1])
+                self.assertEqual(patch_called[0][2]["end"]["dateTime"][:16], "2026-11-06T17:00")
+
+                # Verify cache is updated immediately
+                cache = gcal.load_json(gcal.EVENTS_CACHE_FILE, {})
+                self.assertEqual(cache["events"][0]["endTime"], "17:00")
+
     def test_cmd_list_filtering(self):
         import argparse
         import io
