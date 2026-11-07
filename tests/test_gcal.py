@@ -468,6 +468,8 @@ END:VCALENDAR"""
         standup = [e for e in events if e["title"] == "Video Sync Standup"][0]
         self.assertTrue(standup.get("meetLink", "").startswith("https://meet.google.com/"))
         self.assertTrue(standup.get("addMeet", False))
+        extracted = gcal.extract_meet_link({"location": standup["meetLink"]})
+        self.assertEqual(extracted, standup["meetLink"])
 
     def test_sync_all_honors_days_back_and_forward_from_config(self):
         gcal.atomic_write_json(gcal.CONFIG_FILE, {"daysBack": 900, "daysForward": 500})

@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import string
 import subprocess
 import sys
 import tempfile
@@ -305,6 +306,14 @@ def google_api_request(
             err.close()
 
 
+def generate_meet_code() -> str:
+    letters = string.ascii_lowercase
+    p1 = "".join(secrets.choice(letters) for _ in range(3))
+    p2 = "".join(secrets.choice(letters) for _ in range(4))
+    p3 = "".join(secrets.choice(letters) for _ in range(3))
+    return f"{p1}-{p2}-{p3}"
+
+
 def extract_meet_link(item: dict) -> str:
     hangout = sanitize_url(item.get("hangoutLink", ""))
     if hangout:
@@ -317,11 +326,11 @@ def extract_meet_link(item: dict) -> str:
                 if uri:
                     return uri
     loc = str(item.get("location", ""))
-    m = re.search(r"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}", loc)
+    m = re.search(r"https://meet\.google\.com/[a-zA-Z0-9_\-]+", loc)
     if m:
         return m.group(0)
     desc = str(item.get("description", ""))
-    m2 = re.search(r"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}", desc)
+    m2 = re.search(r"https://meet\.google\.com/[a-zA-Z0-9_\-]+", desc)
     if m2:
         return m2.group(0)
     return ""
@@ -1098,7 +1107,17 @@ def create_google_oauth_event(
         body["end"] = {"dateTime": dt_e.isoformat(), "timeZone": tz_name}
 
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1"
-    resp = google_api_request("POST", url, access_token, payload=body, cfg=cfg)
+    try:
+        resp = google_api_request("POST", url, access_token, payload=body, cfg=cfg)
+    except urllib.error.HTTPError:
+        if ev.get("addMeet") and "conferenceData" in body:
+            body.pop("conferenceData", None)
+            if ev.get("meetLink"):
+                body["description"] = f"{body.get('description', '')}\nGoogle Meet: {ev['meetLink']}".strip()
+            url_fallback = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+            resp = google_api_request("POST", url_fallback, access_token, payload=body, cfg=cfg)
+        else:
+            raise
     if resp:
         return parse_google_event(resp, "Google Calendar", DEFAULT_EVENT_COLOR, "primary", tz)
     return None
@@ -1311,8 +1330,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     if location.startswith("https://"):
         meet_link = sanitize_url(location)
     if add_meet and not meet_link:
-        code = f"{secrets.token_hex(2)[:3]}-{secrets.token_hex(2)}-{secrets.token_hex(2)[:3]}"
-        meet_link = f"https://meet.google.com/{code}"
+        meet_link = f"https://meet.google.com/{generate_meet_code()}"
     color = sanitize_color(args.color or "#039be5")
 
     new_ev = {

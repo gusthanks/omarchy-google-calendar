@@ -74,6 +74,7 @@ Ui.Panel {
   property var calendarPayload: Model.parseEventsPayload("")
   property bool syncing: false
   property bool addingEvent: false
+  property bool isDraggingGhost: false
   property bool newEventAllDay: false
   property bool newEventAddMeet: false
   property string draftDateKey: ""
@@ -154,9 +155,9 @@ Ui.Panel {
   readonly property color contentForeground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
-  readonly property int fullGridWidth: Style.space(556)
-  readonly property int weekColumnWidth: Style.space(32)
-  readonly property int gutterWidth: Style.space(12)
+  readonly property int fullGridWidth: Style.space(496)
+  readonly property int weekColumnWidth: Style.space(28)
+  readonly property int gutterWidth: Style.space(10)
   readonly property int cellSpacing: Style.space(2)
   readonly property int cellWidth: Math.floor((fullGridWidth - weekColumnWidth - gutterWidth - 8 * cellSpacing) / 7)
   readonly property int cellHeight: Style.space(34)
@@ -388,8 +389,13 @@ Ui.Panel {
   function startAddingEventWithRange(dateKey, startTimeStr, endTimeStr) {
     root.showingSyncSettings = false
     root.showingSearch = false
-    root.newEventAllDay = false
-    root.newEventAddMeet = false
+    if (!root.addingEvent) {
+      root.newEventAllDay = false
+      root.newEventAddMeet = false
+      root.newEventTitleText = ""
+      root.newEventLocationText = ""
+      root.newEventDescriptionText = ""
+    }
     root.draftDateKey = dateKey || root.selectedKey
     if (dateKey) {
       var p = Model.parseDateKey(dateKey)
@@ -401,10 +407,8 @@ Ui.Panel {
     if (em <= sm) em = Math.min(1440, sm + 60)
     root.draftStartMinutes = sm
     root.draftEndMinutes = em
-    root.newEventTitleText = ""
-    root.newEventLocationText = ""
-    root.newEventDescriptionText = ""
     root.addingEvent = true
+    root.isDraggingGhost = false
     Qt.callLater(function() {
       var content = panel.loadedContent
       if (content && content.eventTitleField) {
@@ -415,7 +419,11 @@ Ui.Panel {
 
   function cancelAddingEvent() {
     root.addingEvent = false
+    root.isDraggingGhost = false
     root.newEventAddMeet = false
+    root.newEventTitleText = ""
+    root.newEventLocationText = ""
+    root.newEventDescriptionText = ""
     Qt.callLater(function() { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
   }
 
@@ -558,7 +566,7 @@ Ui.Panel {
     open: root.opened
     centerOnBar: false
     focusTarget: panel.loadedContent
-    contentWidth: panel.fittedContentWidth(Style.space(580))
+    contentWidth: panel.fittedContentWidth(Style.space(560))
     contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
 
     content: PanelKeyCatcher {
@@ -576,7 +584,9 @@ Ui.Panel {
 
       implicitHeight: calendarColumn.implicitHeight
       anchors.fill: parent
-      blocked: bornField.activeFocus
+      blocked: root.addingEvent
+        || root.isDraggingGhost
+        || bornField.activeFocus
         || expectancyField.activeFocus
         || eventTitleInput.activeFocus
         || eventDateInput.activeFocus
@@ -643,7 +653,7 @@ Ui.Panel {
         contentHeight: calendarColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height || contentWidth > width
+        interactive: !root.addingEvent && !root.isDraggingGhost && (root.viewMode !== "week" && root.viewMode !== "day") && (contentHeight > height || contentWidth > width)
 
         Column {
           id: calendarColumn
@@ -2047,7 +2057,7 @@ Ui.Panel {
                         width: weekViewCol.weekColWidth
                         height: parent.height
 
-                        readonly property bool isCurrentDraftColumn: root.addingEvent && root.draftDateKey === modelData.key
+                        readonly property bool isCurrentDraftColumn: (root.addingEvent || root.isDraggingGhost) && root.draftDateKey === modelData.key
 
                         // Vertical divider line to right of day column
                         Rectangle {
@@ -2080,10 +2090,10 @@ Ui.Panel {
                             var diffY = mouse.y - pressStartY
                             if (!isDraggingRange && Math.abs(diffY) > 5) {
                               isDraggingRange = true
+                              root.isDraggingGhost = true
                               weekTimelineFlick.interactive = false
                               root.draftDateKey = modelData.key
                               root.selectDate(modelData.year, modelData.month, modelData.day)
-                              root.addingEvent = true
                             }
                             if (isDraggingRange) {
                               var currentRawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
@@ -2102,13 +2112,17 @@ Ui.Panel {
 
                           onReleased: function() {
                             weekTimelineFlick.interactive = true
-                            if (!isDraggingRange) {
+                            root.isDraggingGhost = false
+                            var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
+                            root.selectDate(modelData.year, modelData.month, modelData.day)
+                            if (isDraggingRange) {
+                              // User dragged range — open options modal now
+                              root.startAddingEventWithRange(dateKey, Model.formatMinutes(root.draftStartMinutes), Model.formatMinutes(root.draftEndMinutes))
+                            } else {
                               // Single click on empty slot creates a 1-hour event block at that slot
                               var rawMin = Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60)
                               var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
                               var endMin = Math.min(1440, startMin + 60)
-                              var dateKey = Model.dateKey(modelData.year, modelData.month, modelData.day)
-                              root.selectDate(modelData.year, modelData.month, modelData.day)
                               root.startAddingEventWithRange(dateKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
                             }
                             isDraggingRange = false
@@ -2176,11 +2190,11 @@ Ui.Panel {
                             }
                           }
 
-                          // Drag card to adjust time position
+                          // Drag card to adjust time position or shift days
                           MouseArea {
                             anchors.fill: parent
-                            anchors.topMargin: Style.space(6)
-                            anchors.bottomMargin: Style.space(6)
+                            anchors.topMargin: Style.space(10)
+                            anchors.bottomMargin: Style.space(10)
                             hoverEnabled: true
                             cursorShape: Qt.SizeAllCursor
 
@@ -2190,6 +2204,7 @@ Ui.Panel {
 
                             onPressed: function(mouse) {
                               weekTimelineFlick.interactive = false
+                              root.isDraggingGhost = true
                               startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
                               startMinVal = root.draftStartMinutes
                               endMinVal = root.draftEndMinutes
@@ -2203,20 +2218,45 @@ Ui.Panel {
                               var candStart = Math.max(0, Math.min(1440 - duration, startMinVal + deltaMin))
                               root.draftStartMinutes = candStart
                               root.draftEndMinutes = candStart + duration
+
+                              // Check if dragged horizontally to another day column
+                              var currX = mapToItem(weekCanvas, mouse.x, 0).x - weekViewCol.weekHourColWidth
+                              if (currX >= 0) {
+                                var colIdx = Math.floor(currX / weekViewCol.weekColWidth)
+                                if (colIdx >= 0 && colIdx < root.weekData.days.length) {
+                                  var targetDay = root.weekData.days[colIdx]
+                                  if (targetDay && targetDay.key !== root.draftDateKey) {
+                                    root.draftDateKey = targetDay.key
+                                    root.selectDate(targetDay.year, targetDay.month, targetDay.day)
+                                  }
+                                }
+                              }
                             }
 
                             onReleased: function() {
                               weekTimelineFlick.interactive = true
+                              root.isDraggingGhost = false
                             }
                           }
 
-                          // Top resize handle
+                          // Top resize handle with visible pill indicator
                           Item {
                             anchors.top: parent.top
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            height: Style.space(6)
+                            height: Style.space(10)
                             z: 40
+
+                            Rectangle {
+                              anchors.horizontalCenter: parent.horizontalCenter
+                              anchors.top: parent.top
+                              anchors.topMargin: Style.space(2)
+                              width: Style.space(20)
+                              height: Style.space(3)
+                              radius: height / 2
+                              color: Commons.Color.accent
+                              opacity: 0.85
+                            }
 
                             MouseArea {
                               anchors.fill: parent
@@ -2228,6 +2268,7 @@ Ui.Panel {
 
                               onPressed: function(mouse) {
                                 weekTimelineFlick.interactive = false
+                                root.isDraggingGhost = true
                                 startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
                                 startMinVal = root.draftStartMinutes
                               }
@@ -2242,17 +2283,29 @@ Ui.Panel {
 
                               onReleased: function() {
                                 weekTimelineFlick.interactive = true
+                                root.isDraggingGhost = false
                               }
                             }
                           }
 
-                          // Bottom resize handle
+                          // Bottom resize handle with visible pill indicator
                           Item {
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            height: Style.space(6)
+                            height: Style.space(10)
                             z: 40
+
+                            Rectangle {
+                              anchors.horizontalCenter: parent.horizontalCenter
+                              anchors.bottom: parent.bottom
+                              anchors.bottomMargin: Style.space(2)
+                              width: Style.space(20)
+                              height: Style.space(3)
+                              radius: height / 2
+                              color: Commons.Color.accent
+                              opacity: 0.85
+                            }
 
                             MouseArea {
                               anchors.fill: parent
@@ -2264,6 +2317,7 @@ Ui.Panel {
 
                               onPressed: function(mouse) {
                                 weekTimelineFlick.interactive = false
+                                root.isDraggingGhost = true
                                 startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
                                 endMinVal = root.draftEndMinutes
                               }
@@ -2278,6 +2332,7 @@ Ui.Panel {
 
                               onReleased: function() {
                                 weekTimelineFlick.interactive = true
+                                root.isDraggingGhost = false
                               }
                             }
                           }
@@ -2417,6 +2472,17 @@ Ui.Panel {
                                     elide: Text.ElideRight
                                     text: Model.formatMinutes(weekEventCard.liveStartMinutes) + " – " + Model.formatMinutes(weekEventCard.liveEndMinutes)
                                     color: Qt.darker(root.contentForeground, 1.35)
+                                    font.family: root.contentFontFamily
+                                    font.pixelSize: Math.max(8, Style.font.caption - 2)
+                                  }
+
+                                  Text {
+                                    visible: Boolean(modelData.meetLink) && weekEventCard.height >= Style.space(42)
+                                    textFormat: Text.PlainText
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: "󰕧 Meet"
+                                    color: Commons.Color.accent
                                     font.family: root.contentFontFamily
                                     font.pixelSize: Math.max(8, Style.font.caption - 2)
                                   }
@@ -2773,7 +2839,7 @@ Ui.Panel {
                   width: dayTimelineFlick.width
                   height: 24 * dayTimelineFlick.dayHourHeight
 
-                  readonly property bool isCurrentDraftDay: root.addingEvent && root.draftDateKey === root.dayData.key
+                  readonly property bool isCurrentDraftDay: (root.addingEvent || root.isDraggingGhost) && root.draftDateKey === root.dayData.key
 
                   // 1. Hourly grid lines & hour labels
                   Repeater {
@@ -2852,9 +2918,9 @@ Ui.Panel {
                       var diffY = mouse.y - pressStartY
                       if (!isDraggingRange && Math.abs(diffY) > 5) {
                         isDraggingRange = true
+                        root.isDraggingGhost = true
                         dayTimelineFlick.interactive = false
                         root.draftDateKey = root.selectedKey
-                        root.addingEvent = true
                       }
                       if (isDraggingRange) {
                         var currentRawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
@@ -2873,7 +2939,11 @@ Ui.Panel {
 
                     onReleased: function() {
                       dayTimelineFlick.interactive = true
-                      if (!isDraggingRange) {
+                      root.isDraggingGhost = false
+                      if (isDraggingRange) {
+                        // User dragged range — open options modal now
+                        root.startAddingEventWithRange(root.selectedKey, Model.formatMinutes(root.draftStartMinutes), Model.formatMinutes(root.draftEndMinutes))
+                      } else {
                         // Single click creates 1-hour block at clicked time
                         var rawMin = Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60)
                         var startMin = Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
@@ -2948,8 +3018,8 @@ Ui.Panel {
                     // Card body drag to shift time
                     MouseArea {
                       anchors.fill: parent
-                      anchors.topMargin: Style.space(8)
-                      anchors.bottomMargin: Style.space(8)
+                      anchors.topMargin: Style.space(10)
+                      anchors.bottomMargin: Style.space(10)
                       hoverEnabled: true
                       cursorShape: Qt.SizeAllCursor
 
@@ -2959,6 +3029,7 @@ Ui.Panel {
 
                       onPressed: function(mouse) {
                         dayTimelineFlick.interactive = false
+                        root.isDraggingGhost = true
                         startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
                         startMinVal = root.draftStartMinutes
                         endMinVal = root.draftEndMinutes
@@ -2976,16 +3047,28 @@ Ui.Panel {
 
                       onReleased: function() {
                         dayTimelineFlick.interactive = true
+                        root.isDraggingGhost = false
                       }
                     }
 
-                    // Top resize handle
+                    // Top resize handle with visible pill indicator
                     Item {
                       anchors.top: parent.top
                       anchors.left: parent.left
                       anchors.right: parent.right
-                      height: Style.space(8)
+                      height: Style.space(10)
                       z: 40
+
+                      Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        anchors.topMargin: Style.space(2)
+                        width: Style.space(24)
+                        height: Style.space(3)
+                        radius: height / 2
+                        color: Commons.Color.accent
+                        opacity: 0.85
+                      }
 
                       MouseArea {
                         anchors.fill: parent
@@ -2997,6 +3080,7 @@ Ui.Panel {
 
                         onPressed: function(mouse) {
                           dayTimelineFlick.interactive = false
+                          root.isDraggingGhost = true
                           startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
                           startMinVal = root.draftStartMinutes
                         }
@@ -3011,17 +3095,29 @@ Ui.Panel {
 
                         onReleased: function() {
                           dayTimelineFlick.interactive = true
+                          root.isDraggingGhost = false
                         }
                       }
                     }
 
-                    // Bottom resize handle
+                    // Bottom resize handle with visible pill indicator
                     Item {
                       anchors.bottom: parent.bottom
                       anchors.left: parent.left
                       anchors.right: parent.right
-                      height: Style.space(8)
+                      height: Style.space(10)
                       z: 40
+
+                      Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: Style.space(2)
+                        width: Style.space(24)
+                        height: Style.space(3)
+                        radius: height / 2
+                        color: Commons.Color.accent
+                        opacity: 0.85
+                      }
 
                       MouseArea {
                         anchors.fill: parent
@@ -3033,6 +3129,7 @@ Ui.Panel {
 
                         onPressed: function(mouse) {
                           dayTimelineFlick.interactive = false
+                          root.isDraggingGhost = true
                           startCanvasY = mapToItem(dayCanvas, 0, mouse.y).y
                           endMinVal = root.draftEndMinutes
                         }
@@ -3047,6 +3144,7 @@ Ui.Panel {
 
                         onReleased: function() {
                           dayTimelineFlick.interactive = true
+                          root.isDraggingGhost = false
                         }
                       }
                     }
@@ -3201,6 +3299,18 @@ Ui.Panel {
                             }
 
                             Text {
+                              visible: Boolean(modelData.meetLink) && dayEventCard.height >= Style.space(42)
+                              textFormat: Text.PlainText
+                              width: parent.width
+                              elide: Text.ElideRight
+                              text: "󰕧 Meet"
+                              color: Commons.Color.accent
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                              font.bold: true
+                            }
+
+                            Text {
                               visible: Boolean(modelData.location) && dayEventCard.height >= Style.space(52)
                               textFormat: Text.PlainText
                               width: parent.width
@@ -3235,8 +3345,8 @@ Ui.Panel {
 
                             PanelActionButton {
                               visible: modelData.actionUrl !== "" && dayEventCard.height >= Style.space(26)
-                              iconText: "󰌹"
-                              tooltipText: tr.t("events.openLink")
+                              iconText: modelData.meetLink ? "󰕧" : "󰌹"
+                              tooltipText: modelData.meetLink ? "Google Meet" : tr.t("events.openLink")
                               foreground: root.contentForeground
                               fontFamily: root.contentFontFamily
                               onClicked: root.openExternalUrl(modelData.actionUrl)
@@ -3820,13 +3930,23 @@ Ui.Panel {
         id: eventModalContainer
         anchors.fill: parent
         z: 120
-        visible: root.addingEvent
+        visible: root.addingEvent && !root.isDraggingGhost
 
         BorderSurface {
           id: eventModalCard
-          anchors.horizontalCenter: parent.horizontalCenter
-          y: Math.max(Style.space(20), Math.min(Style.space(68), Math.floor((parent.height - implicitHeight) / 2)))
-          width: Math.min(Style.space(420), parent.width - Style.space(24))
+          property real cardX: {
+            if (root.viewMode === "week") {
+              var p = Model.parseDateKey(root.draftDateKey)
+              var dayIdx = p ? (new Date(p.year, p.month, p.day, 12)).getDay() : 0
+              if (dayIdx >= 3) return Style.space(12)
+              return Math.max(Style.space(12), parent.width - width - Style.space(12))
+            }
+            return Math.max(Style.space(12), Math.floor((parent.width - width) / 2))
+          }
+          property real cardY: Math.max(Style.space(24), Math.min(Style.space(72), Math.floor((parent.height - implicitHeight) / 2)))
+          x: cardX
+          y: cardY
+          width: Math.min(Style.space(350), parent.width - Style.space(24))
           implicitHeight: eventModalCol.implicitHeight + Style.space(22)
           radius: Style.cornerRadius * 1.5
           color: Qt.rgba(0.12, 0.13, 0.15, 0.97)
@@ -3844,18 +3964,44 @@ Ui.Panel {
             Row {
               width: parent.width
 
-              Text {
-                textFormat: Text.PlainText
-                anchors.verticalCenter: parent.verticalCenter
-                text: "󰍜"
-                color: Qt.darker(root.contentForeground, 1.8)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
-              }
-
               Item {
-                width: parent.width - Style.space(46)
-                height: 1
+                width: parent.width - Style.space(28)
+                height: Style.space(24)
+
+                MouseArea {
+                  id: modalHeaderDrag
+                  anchors.fill: parent
+                  cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                  property real startMouseX: 0
+                  property real startMouseY: 0
+                  property real startCardX: 0
+                  property real startCardY: 0
+
+                  onPressed: function(mouse) {
+                    startMouseX = mouse.x
+                    startMouseY = mouse.y
+                    startCardX = eventModalCard.x
+                    startCardY = eventModalCard.y
+                  }
+
+                  onPositionChanged: function(mouse) {
+                    if (!pressed) return
+                    var newX = startCardX + (mouse.x - startMouseX)
+                    var newY = startCardY + (mouse.y - startMouseY)
+                    eventModalCard.cardX = Math.max(Style.space(4), Math.min(eventModalContainer.width - eventModalCard.width - Style.space(4), newX))
+                    eventModalCard.cardY = Math.max(Style.space(4), Math.min(eventModalContainer.height - eventModalCard.height - Style.space(4), newY))
+                  }
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  text: "󰍜"
+                  color: Qt.darker(root.contentForeground, 1.8)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                }
               }
 
               Button {
@@ -3970,6 +4116,10 @@ Ui.Panel {
                     font.pixelSize: Style.font.caption
                     verticalPadding: Style.space(2)
                     horizontalPadding: Style.space(4)
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                      else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                    }
                   }
 
                   TextField {
@@ -3989,6 +4139,10 @@ Ui.Panel {
                     font.pixelSize: Style.font.caption
                     verticalPadding: Style.space(2)
                     horizontalPadding: Style.space(4)
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                      else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                    }
                   }
 
                   Text {
@@ -4012,6 +4166,10 @@ Ui.Panel {
                     font.pixelSize: Style.font.caption
                     verticalPadding: Style.space(2)
                     horizontalPadding: Style.space(4)
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
+                      else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
+                    }
                   }
 
                   Button {
@@ -4108,10 +4266,10 @@ Ui.Panel {
               }
             }
 
-            // 6. Location Row
+            // 6. Location Row with Google Maps integration
             Row {
               width: parent.width
-              spacing: Style.space(10)
+              spacing: Style.space(8)
 
               Text {
                 textFormat: Text.PlainText
@@ -4124,7 +4282,7 @@ Ui.Panel {
 
               TextField {
                 id: eventLocationInput
-                width: parent.width - Style.space(32)
+                width: parent.width - Style.space(64)
                 placeholderText: tr.t("form.addLocation")
                 text: root.newEventLocationText
                 onTextChanged: { root.newEventLocationText = text }
@@ -4136,6 +4294,26 @@ Ui.Panel {
                   if (event.key === Qt.Key_Escape) { root.cancelAddingEvent(); event.accepted = true }
                   else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.commitNewEvent(); event.accepted = true }
                   else if (event.key === Qt.Key_Tab) { eventDescriptionInput.forceActiveFocus(); event.accepted = true }
+                }
+              }
+
+              Button {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(24)
+                height: Style.space(24)
+                horizontalPadding: 0
+                verticalPadding: 0
+                iconText: "󰦩"
+                tooltipText: tr.t("form.viewOnMaps")
+                bordered: true
+                foreground: root.contentForeground
+                accent: Commons.Color.accent
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                onClicked: {
+                  var q = root.newEventLocationText.trim()
+                  var url = q ? ("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q)) : "https://maps.google.com"
+                  root.openExternalUrl(url)
                 }
               }
             }

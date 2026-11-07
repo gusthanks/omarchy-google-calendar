@@ -773,6 +773,7 @@ function formatEventTooltip(ev, allDayLabel) {
   if (timePart) parts.push("[" + neutralizeMarkup(timePart, 32) + "] " + neutralizeMarkup(ev.title || "", 120))
   else parts.push(neutralizeMarkup(ev.title || "", 120))
   if (ev.location) parts.push("📍 " + neutralizeMarkup(ev.location, 100))
+  if (ev.meetLink) parts.push("󰕧 Meet")
   if (ev.description) parts.push(neutralizeMarkup(ev.description, 160))
   if (ev.calendarName) parts.push("(" + neutralizeMarkup(ev.calendarName, 50) + ")")
   return neutralizeMarkup(parts.join(" · "), 300)

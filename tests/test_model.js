@@ -250,6 +250,16 @@ test("quickEvent validation", () => {
   assert.equal(good.startTime, "14:00");
   assert.equal(good.endTime, "15:00");
   assert.equal(good.addMeet, true);
+
+  const tip = Model.formatEventTooltip({
+    title: "Sync Call",
+    startTime: "14:00",
+    endTime: "15:00",
+    meetLink: "https://meet.google.com/abc-defg-hij",
+    location: "Online Room"
+  });
+  assert.ok(tip.includes("󰕧 Meet"));
+  assert.ok(tip.includes("Online Room"));
 });
 
 test("yearViewModel suppresses today and selected for days outside the month", () => {
