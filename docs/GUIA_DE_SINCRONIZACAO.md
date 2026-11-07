@@ -53,27 +53,34 @@ Ideal se você quer que os eventos criados no Omarchy (pelo botão `+ Evento`, a
 1. No menu lateral (ou barra de busca do topo), vá em **"APIs e serviços" > "Biblioteca"** (ou acesse direto o [link da API](https://console.cloud.google.com/marketplace/product/google/calendar-json.googleapis.com)).
 2. Clique no botão azul **"Ativar"** (*Enable*).
 
-### Passo 3: Configurar a Tela de Consentimento OAuth
-1. No menu lateral esquerdo, clique em **"Tela de permissão OAuth"** (*OAuth consent screen*).
-2. Selecione o tipo de usuário: **"Externo"** (*External*) e clique em **"Criar"**.
-3. Preencha as informações básicas:
+### Passo 3: Configurar a Autenticação no Google (Google Auth Platform / Tela de Consentimento)
+O Google atualizou recentemente o console para a **Google Auth Platform**. Siga os passos abaixo na tela:
+
+1. No menu lateral esquerdo, clique em **"Google Auth Platform"** (ou "Tela de permissão OAuth").
+2. **App Information (Informações do aplicativo):**
    - **Nome do app:** `Omarchy Calendar`
-   - **E-mail para suporte do usuário:** selecione o seu próprio e-mail.
-   - **Dados de contato do desenvolvedor:** digite o seu próprio e-mail.
-4. Clique em **"Salvar e continuar"**.
-5. Na etapa **"Escopos"** (*Scopes*), clique em **"Adicionar ou remover escopos"**, filtre por `calendar` e selecione `.../auth/calendar` (Google Calendar API). Clique em **"Atualizar"** e depois em **"Salvar e continuar"**.
-6. Na etapa **"Usuários de teste"** (*Test users*), clique em **"+ Add users"**, insira o seu próprio e-mail do Google e confirme. *(Isso é fundamental para sua conta ter permissão para conectar)*.
-7. Clique em **"Salvar e continuar"**.
+   - **E-mail de suporte:** selecione o seu próprio e-mail.
+   - **E-mail do desenvolvedor:** insira o seu e-mail.
+   - Clique em **Salvar e continuar** / **Next**.
+3. **Audience (Público-alvo):**
+   - Selecione **"External"** (Externo). *(Contas pessoais `@gmail.com` utilizam External)*.
+   - Clique em **Next** / Salvar.
+4. **Adicionar Usuário de Teste (Test Users):**
+   - No menu lateral, clique em **"Audience"** (ou na etapa "Test Users").
+   - Na seção **"Test users"** (Usuários de teste), clique em **"+ Add users"**, digite o seu próprio e-mail do Google e confirme. *(Isso é obrigatório para sua conta pessoal ter permissão de login enquanto o app estiver em modo de teste)*.
+5. **Data Access / Scopes (Acesso a dados / Escopos):**
+   - Se solicitado, adicione o escopo `.../auth/calendar` (Google Calendar API).
 
-### Passo 4: Criar as Credenciais (OAuth Client ID)
-1. No menu lateral esquerdo, clique em **"Credenciais"** (*Credentials*).
-2. Clique em **"+ Criar credenciais" > "ID do cliente OAuth"**.
-3. Em **Tipo de aplicativo**, selecione **"App para computador"** (*Desktop app*).
-4. Em **Nome**, coloque `Omarchy Shell` e clique em **"Criar"**.
-5. Na janelinha que abrir, clique em **"Fazer o download do JSON"** (ícone de seta ⬇️). O arquivo será salvo na sua pasta `Downloads` como `client_secret_...json`.
+### Passo 4: Criar as Credenciais (Clients / ID do cliente OAuth)
+1. No menu lateral esquerdo, clique em **"Clients"** (ou "Credenciais" / *Credentials*).
+2. Clique em **"+ Create Client"** (ou "+ Criar credenciais" > "ID do cliente OAuth").
+3. Em **Tipo de aplicativo** (*Application type*), selecione **"Desktop app"** (*App para computador*).
+4. Em **Nome**, digite `Omarchy Shell` e clique em **"Create"** (*Criar*).
+5. Uma janela se abrirá com o cliente criado. Clique no botão **"Download JSON"** (ícone de download ⬇️).
+6. O arquivo será salvo na sua pasta `~/Downloads` com um nome parecido com `client_secret_...json`.
 
-### Passo 5: Conectar ao Omarchy (1 comando)
-Basta abrir o terminal e rodar:
+### Passo 5: Conectar ao Omarchy (1 comando no terminal)
+Com o arquivo na sua pasta `Downloads`, abra o seu terminal e execute apenas:
 
 ```bash
 omarchy-gcal auth

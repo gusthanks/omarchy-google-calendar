@@ -118,20 +118,18 @@ Ideal if you want events created inside Omarchy (via `+ Event`, pressing `N`, or
 1. In the navigation menu, go to **APIs & Services > Library** (or go directly to the [Calendar API page](https://console.cloud.google.com/marketplace/product/google/calendar-json.googleapis.com)).
 2. Click **Enable**.
 
-#### 3. Configure the OAuth Consent Screen
-1. In the left sidebar, click **APIs & Services > OAuth consent screen**.
-2. Select User Type **External** and click **Create**.
-3. Fill in the required fields:
-   - **App name:** `Omarchy Calendar`
-   - **User support email:** Your Google email
-   - **Developer contact information:** Your Google email
-4. Click **Save and Continue**.
-5. On the **Scopes** page, click **Add or Remove Scopes**, select `.../auth/calendar` (Google Calendar API), and click **Update** > **Save and Continue**.
-6. On the **Test users** page, click **+ Add users**, enter your Google email address, and click **Add** > **Save and Continue**.
+#### 3. Configure the Google Auth Platform / OAuth Consent Screen
+Google recently updated the console to the new **Google Auth Platform**:
+
+1. In the left sidebar, click **Google Auth Platform** (or **OAuth consent screen**).
+2. **App Information:** Enter `Omarchy Calendar` for the App name, and select your email for both support and developer contact. Click **Next** / **Save and Continue**.
+3. **Audience:** Select **External** (standard for personal `@gmail.com` accounts) and click **Next**.
+4. **Test Users:** Under the **Audience** menu (or Test users step), click **+ Add users**, enter your Google email address, and save. *(Required so your account has permission to log in while in testing mode)*.
+5. **Data Access:** Add `.../auth/calendar` if prompted for scopes.
 
 #### 4. Create OAuth Client Credentials
-1. In the left sidebar, click **Credentials**.
-2. Click **+ Create Credentials > OAuth client ID**.
+1. In the left sidebar, click **Clients** (or **Credentials > Create Credentials > OAuth client ID**).
+2. Click **+ Create Client**.
 3. For **Application type**, choose **Desktop app**.
 4. Set the name to `Omarchy Shell` and click **Create**.
 5. In the confirmation dialog, click **Download JSON** (⬇️). This saves `client_secret_*.json` into your `~/Downloads` folder.
