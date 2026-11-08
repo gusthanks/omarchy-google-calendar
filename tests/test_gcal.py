@@ -535,16 +535,46 @@ END:VCALENDAR"""
             self.assertEqual(res[0]["title"], "Auditório Ibirapuera")
             self.assertIn("Avenida Pedro Álvares Cabral", res[0]["address"])
             self.assertIn("São Paulo", res[0]["full"])
+            self.assertIn("lat", res[0])
+            self.assertIn("lon", res[0])
 
         # Test CLI geocode command
-        args = argparse.Namespace(query="Ibirapuera", limit=1)
-        with patch.object(gcal, "search_places", return_value=[{"title": "Test Place", "address": "Test City", "full": "Test Place, Test City"}]):
+        parser = gcal.build_parser()
+        args_flag = parser.parse_args(["geocode", "--query", "Ibirapuera", "--limit", "1"])
+        self.assertEqual(args_flag.opt_query, "Ibirapuera")
+
+        args = argparse.Namespace(query="", opt_query="Ibirapuera", limit=1)
+        with patch.object(gcal, "search_places", return_value=[{"title": "Test Place", "address": "Test City", "full": "Test Place, Test City", "lat": -23.5, "lon": -46.6}]):
             with patch("builtins.print") as mock_print:
                 ret = gcal.cmd_geocode(args)
                 self.assertEqual(ret, 0)
                 mock_print.assert_called_once()
                 out = json.loads(mock_print.call_args[0][0])
                 self.assertEqual(out[0]["title"], "Test Place")
+                self.assertEqual(out[0]["lat"], -23.5)
+
+    def test_cmd_add_with_explicit_meet_url(self):
+        with patch.object(gcal, "EVENTS_CACHE_FILE", Path(self.temp_dir.name) / "cache.json"), \
+             patch.object(gcal, "LOCAL_EVENTS_FILE", Path(self.temp_dir.name) / "local.json"), \
+             patch.object(gcal, "get_valid_access_token", return_value=None):
+            args = argparse.Namespace(
+                title="Design Review",
+                date="2026-11-10",
+                end_date="",
+                start="10:00",
+                end="11:00",
+                all_day=False,
+                location="",
+                description="",
+                color="#039be5",
+                add_meet=True,
+                meet_url="https://meet.google.com/xyz-abcd-efg"
+            )
+            ret = gcal.cmd_add(args)
+            self.assertEqual(ret, 0)
+            cache = gcal.load_json(gcal.LOCAL_EVENTS_FILE, [])
+            self.assertEqual(len(cache), 1)
+            self.assertEqual(cache[0]["meetLink"], "https://meet.google.com/xyz-abcd-efg")
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ EVENTS_CACHE_FILE = STATE_DIR / "events.json"
 
 MAX_HTTP_BYTES = 5 * 1024 * 1024  # 5 MB response cap
 MAX_VEVENTS = 5000
-MAX_EVENTS = 2000
+MAX_EVENTS = 10000
 MAX_TITLE_LEN = 240
 MAX_DESC_LEN = 1200
 MAX_LOC_LEN = 300
@@ -448,22 +448,31 @@ def fetch_google_oauth_events(
         cal_color = sanitize_color(cal.get("backgroundColor") or DEFAULT_EVENT_COLOR)
 
         encoded_cal = urllib.parse.quote(cal_id, safe="")
-        query = urllib.parse.urlencode({
-            "singleEvents": "true",
-            "orderBy": "startTime",
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "maxResults": "1000",
-        })
-        ev_url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events?{query}"
-        try:
-            ev_resp = google_api_request("GET", ev_url, access_token, cfg=cfg) or {}
+        page_token = ""
+        # Follow nextPageToken so calendars with more than one page of events
+        # are never silently truncated (hard cap protects against runaway loops).
+        for _page in range(30):
+            params = {
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "maxResults": "250",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            ev_url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events?{urllib.parse.urlencode(params)}"
+            try:
+                ev_resp = google_api_request("GET", ev_url, access_token, cfg=cfg) or {}
+            except Exception:
+                break
             for item in ev_resp.get("items", []):
                 parsed = parse_google_event(item, cal_name, cal_color, cal_id, tz)
                 if parsed:
                     events.append(parsed)
-        except Exception:
-            continue
+            page_token = str(ev_resp.get("nextPageToken") or "")
+            if not page_token:
+                break
     return events
 
 
@@ -1326,8 +1335,12 @@ def cmd_add(args: argparse.Namespace) -> int:
     location = clean_str(args.location or "", MAX_LOC_LEN)
     description = clean_str(args.description or "", MAX_DESC_LEN)
     add_meet = bool(getattr(args, "add_meet", False))
+    meet_url_arg = clean_str(getattr(args, "meet_url", "") or "", 256)
     meet_link = ""
-    if location.startswith("https://"):
+    if meet_url_arg:
+        meet_link = sanitize_url(meet_url_arg)
+        add_meet = True
+    elif location.startswith("https://"):
         meet_link = sanitize_url(location)
     if add_meet and not meet_link:
         meet_link = f"https://meet.google.com/{generate_meet_code()}"
@@ -1705,6 +1718,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--description", default="")
     p_add.add_argument("--color", default=DEFAULT_EVENT_COLOR)
     p_add.add_argument("--add-meet", action="store_true", help="Add Google Meet video conferencing")
+    p_add.add_argument("--meet-url", default="", help="Explicit Google Meet conferencing URL")
 
     p_del = sub.add_parser("delete", help="Delete a calendar event")
     p_del.add_argument("--id", required=True)
@@ -1734,7 +1748,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
 
     p_geo = sub.add_parser("geocode", help="Search location and address suggestions via geocoding")
-    p_geo.add_argument("query", help="Location or address to search")
+    p_geo.add_argument("query", nargs="?", default="", help="Location or address to search")
+    p_geo.add_argument("-q", "--query", dest="opt_query", default="", help="Location or address to search")
     p_geo.add_argument("--limit", type=int, default=5, help="Maximum number of suggestions")
 
     return parser
@@ -1827,6 +1842,9 @@ def search_places(query: str, limit: int = 5) -> list:
             data = json.loads(resp.read().decode("utf-8"))
             for f in data.get("features", []):
                 p = f.get("properties", {})
+                coords = f.get("geometry", {}).get("coordinates", [0, 0])
+                lon = float(coords[0]) if len(coords) > 0 else 0.0
+                lat = float(coords[1]) if len(coords) > 1 else 0.0
                 name = p.get("name") or ""
                 street = p.get("street") or ""
                 num = p.get("housenumber") or ""
@@ -1838,7 +1856,7 @@ def search_places(query: str, limit: int = 5) -> list:
                 address = ", ".join(addr_parts)
                 title = name if name else (street_num or query)
                 full = f"{title}, {address}" if address and title != address else (title or address)
-                results.append({"title": title, "address": address, "full": full})
+                results.append({"title": title, "address": address, "full": full, "lat": lat, "lon": lon})
             if results:
                 return results[:limit]
     except Exception:
@@ -1856,7 +1874,9 @@ def search_places(query: str, limit: int = 5) -> list:
                 parts = [s.strip() for s in raw.split(",") if s.strip()]
                 title = parts[0] if parts else query
                 address = ", ".join(parts[1:]) if len(parts) > 1 else ""
-                results.append({"title": title, "address": address, "full": raw})
+                lat = float(item.get("lat") or 0.0)
+                lon = float(item.get("lon") or 0.0)
+                results.append({"title": title, "address": address, "full": raw, "lat": lat, "lon": lon})
             if results:
                 return results[:limit]
     except Exception:
@@ -1866,7 +1886,7 @@ def search_places(query: str, limit: int = 5) -> list:
 
 
 def cmd_geocode(args: argparse.Namespace) -> int:
-    query = (getattr(args, "query", "") or "").strip()
+    query = (getattr(args, "opt_query", "") or getattr(args, "query", "") or "").strip()
     limit = getattr(args, "limit", 5)
     results = search_places(query, limit=limit)
     print(json.dumps(results, ensure_ascii=False))

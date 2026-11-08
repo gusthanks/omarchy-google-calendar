@@ -364,3 +364,19 @@ test("dayViewModel and weekViewModel produce laid out timed events with position
   assert.equal(friday.timedEvents[0].totalCols, 2);
   assert.equal(friday.timedEvents[0].durationMinutes, 600);
 });
+
+test("latLonToTile, getTileUrl, and generateMeetCode", () => {
+  // Test tile calculation for Sao Paulo (lat: -23.55, lon: -46.63)
+  const tile = Model.latLonToTile(-23.55, -46.63, 15);
+  assert.equal(tile.z, 15);
+  assert.ok(tile.x > 0);
+  assert.ok(tile.y > 0);
+
+  const url = Model.getTileUrl(tile.z, tile.x, tile.y);
+  assert.ok(url.startsWith("https://basemaps.cartocdn.com/dark_all/15/"));
+  assert.ok(url.endsWith(".png"));
+
+  // Test meet code format: xxx-yyyy-zzz
+  const code = Model.generateMeetCode();
+  assert.match(code, /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
+});

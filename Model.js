@@ -1044,6 +1044,35 @@ function validateQuickEvent(input) {
   }
 }
 
+function latLonToTile(lat, lon, zoom) {
+  var z = Math.max(1, Math.min(18, Math.floor(zoom || 15)))
+  var nLat = Number(lat) || 0
+  var nLon = Number(lon) || 0
+  var x = Math.floor((nLon + 180.0) / 360.0 * Math.pow(2, z))
+  var latRad = nLat * Math.PI / 180.0
+  latRad = Math.max(-1.4844, Math.min(1.4844, latRad))
+  var y = Math.floor((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * Math.pow(2, z))
+  return { z: z, x: x, y: y }
+}
+
+function getTileUrl(z, x, y) {
+  var safeZ = Math.max(1, Math.min(18, Math.floor(z || 15)))
+  var maxTile = Math.pow(2, safeZ)
+  var safeX = ((Math.floor(x) % maxTile) + maxTile) % maxTile
+  var safeY = Math.max(0, Math.min(maxTile - 1, Math.floor(y)))
+  return "https://basemaps.cartocdn.com/dark_all/" + safeZ + "/" + safeX + "/" + safeY + ".png"
+}
+
+function generateMeetCode() {
+  var chars = "abcdefghijklmnopqrstuvwxyz"
+  function r(n) {
+    var s = ""
+    for (var i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length))
+    return s
+  }
+  return r(3) + "-" + r(4) + "-" + r(3)
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     msUntilNextTick: msUntilNextTick,
@@ -1100,6 +1129,9 @@ if (typeof module !== "undefined") {
     upcomingEventSummary: upcomingEventSummary,
     validateQuickEvent: validateQuickEvent,
     searchEvents: searchEvents,
-    layoutTimedEvents: layoutTimedEvents
+    layoutTimedEvents: layoutTimedEvents,
+    latLonToTile: latLonToTile,
+    getTileUrl: getTileUrl,
+    generateMeetCode: generateMeetCode
   }
 }
