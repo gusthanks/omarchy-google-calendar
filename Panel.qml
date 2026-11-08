@@ -11,8 +11,8 @@ import "Model.js" as Model
 // for the Omarchy clock widget.
 Ui.Panel {
   id: root
-  moduleName: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "omarchy-google-calendar"
-  ipcTarget: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "omarchy.clock"
+  moduleName: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.clock"
+  ipcTarget: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.clock"
   manageIpc: false
 
   Commons.Translations {
@@ -2198,7 +2198,7 @@ Ui.Panel {
                             } else {
                               // Single click on empty slot creates a 1-hour event block at that slot
                               var rawMin = (mouse && typeof mouse.y === "number") ? Math.floor((mouse.y / weekViewCol.weekHourHeight) * 60) : dragAnchorMinutes
-                              var startMin = dragAnchorMinutes > 0 ? dragAnchorMinutes : Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                              var startMin = dragAnchorMinutes >= 0 ? dragAnchorMinutes : Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
                               var endMin = Math.min(1440, startMin + 60)
                               root.startAddingEventWithRange(dateKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
                             }
@@ -2496,7 +2496,9 @@ Ui.Panel {
                               readonly property int colIndex: modelData.colIndex || 0
                               readonly property real evColWidth: (parent.width - 2) / totalCols
 
-                              x: colIndex * evColWidth + 1
+                              property real dragCanvasOffsetX: 0
+
+                              x: (colIndex * evColWidth + 1) + (isDraggingCard ? dragCanvasOffsetX : 0)
                               width: Math.max(12, evColWidth - 2)
 
                               property int liveStartMinutes: modelData.effectiveStartMinutes
@@ -2602,13 +2604,17 @@ Ui.Panel {
                                   hoverEnabled: true
                                   cursorShape: weekEventCard.isDraggingCard ? Qt.ClosedHandCursor : (modelData.actionUrl !== "" ? Qt.PointingHandCursor : Qt.OpenHandCursor)
 
+                                  property real startCanvasX: 0
                                   property real startCanvasY: 0
                                   property real pressStartY: 0
                                   property bool dragStarted: false
 
                                   onPressed: function(mouse) {
                                     pressStartY = mouse.y
-                                    startCanvasY = mapToItem(weekCanvas, 0, mouse.y).y
+                                    var pt = mapToItem(weekCanvas, mouse.x, mouse.y)
+                                    startCanvasX = pt.x
+                                    startCanvasY = pt.y
+                                    weekEventCard.dragCanvasOffsetX = 0
                                     weekEventCard.initialStartMinutes = weekEventCard.liveStartMinutes
                                     weekEventCard.initialEndMinutes = weekEventCard.liveEndMinutes
                                     weekEventCard.targetDateKey = modelData.startDate
@@ -2618,20 +2624,21 @@ Ui.Panel {
                                   onPositionChanged: function(mouse) {
                                     if (!pressed) return
                                     var diffY = mouse.y - pressStartY
-                                    if (!dragStarted && Math.abs(diffY) > 5) {
+                                    if (!dragStarted && (Math.abs(diffY) > 5 || Math.abs(mouse.x) > 5)) {
                                       dragStarted = true
                                       weekEventCard.isDraggingCard = true
                                       weekTimelineFlick.interactive = false
                                     }
                                     if (weekEventCard.isDraggingCard) {
                                       var currPos = mapToItem(weekCanvas, mouse.x, mouse.y)
+                                      weekEventCard.dragCanvasOffsetX = currPos.x - startCanvasX
                                       var deltaMin = Math.round((currPos.y - startCanvasY) / (weekViewCol.weekHourHeight / 60.0) / 15.0) * 15
                                       var duration = weekEventCard.initialEndMinutes - weekEventCard.initialStartMinutes
                                       var candStart = Math.max(0, Math.min(1440 - duration, weekEventCard.initialStartMinutes + deltaMin))
                                       weekEventCard.liveStartMinutes = candStart
                                       weekEventCard.liveEndMinutes = candStart + duration
 
-                                      var colX = currPos.x - weekTimelineFlick.weekHourColWidth
+                                      var colX = currPos.x - weekViewCol.weekHourColWidth
                                       if (colX >= 0) {
                                         var colIdx = Math.floor(colX / weekViewCol.weekColWidth)
                                         if (colIdx >= 0 && colIdx < root.weekData.days.length) {
@@ -2646,20 +2653,21 @@ Ui.Panel {
                                     weekTimelineFlick.interactive = true
                                     if (weekEventCard.isDraggingCard) {
                                       weekEventCard.isDraggingCard = false
+                                      weekEventCard.dragCanvasOffsetX = 0
                                       if (weekEventCard.liveStartMinutes !== modelData.effectiveStartMinutes ||
                                           weekEventCard.liveEndMinutes !== modelData.effectiveEndMinutes ||
                                           weekEventCard.targetDateKey !== modelData.startDate) {
                                         root.updateEventTime(modelData.id, weekEventCard.targetDateKey, Model.formatMinutes(weekEventCard.liveStartMinutes), Model.formatMinutes(weekEventCard.liveEndMinutes))
                                       }
-                                    } else if (modelData.actionUrl !== "") {
-                                      root.openExternalUrl(modelData.actionUrl)
                                     }
                                     dragStarted = false
                                   }
 
                                   onDoubleClicked: function(mouse) {
-                                    if (!weekEventCard.isDraggingCard && modelData.actionUrl !== "") {
-                                      root.openExternalUrl(modelData.actionUrl)
+                                    if (!weekEventCard.isDraggingCard) {
+                                      var pk = Model.parseDateKey(modelData.startDate)
+                                      if (pk) root.selectDate(pk.year, pk.month, pk.day)
+                                      root.setViewMode("day")
                                     }
                                   }
 
@@ -3137,7 +3145,7 @@ Ui.Panel {
                       } else {
                         // Single click creates 1-hour block at clicked time
                         var rawMin = (mouse && typeof mouse.y === "number") ? Math.floor((mouse.y / dayTimelineFlick.dayHourHeight) * 60) : dragAnchorMinutes
-                        var startMin = dragAnchorMinutes > 0 ? dragAnchorMinutes : Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
+                        var startMin = dragAnchorMinutes >= 0 ? dragAnchorMinutes : Math.max(0, Math.min(1380, Math.floor(rawMin / 15) * 15))
                         var endMin = Math.min(1440, startMin + 60)
                         root.startAddingEventWithRange(root.selectedKey, Model.formatMinutes(startMin), Model.formatMinutes(endMin))
                       }
@@ -3613,8 +3621,6 @@ Ui.Panel {
                                 if (dayEventCard.liveStartMinutes !== modelData.effectiveStartMinutes || dayEventCard.liveEndMinutes !== modelData.effectiveEndMinutes) {
                                   root.updateEventTime(modelData.id, root.dayData.key, Model.formatMinutes(dayEventCard.liveStartMinutes), Model.formatMinutes(dayEventCard.liveEndMinutes))
                                 }
-                              } else if (modelData.actionUrl !== "") {
-                                root.openExternalUrl(modelData.actionUrl)
                               }
                               dragStarted = false
                             }
@@ -4474,34 +4480,21 @@ Ui.Panel {
 
                 Rectangle {
                   height: Style.space(28)
-                  width: Math.min(eventModalCard.width - Style.space(130), meetLabelText.implicitWidth + Style.space(28))
+                  width: Math.min(eventModalCard.width - Style.space(130), meetLabelText.implicitWidth + Style.space(20))
                   radius: Style.cornerRadius / 2
                   color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18)
                   border.width: 1
                   border.color: Commons.Color.accent
 
-                  Row {
+                  Text {
+                    id: meetLabelText
                     anchors.centerIn: parent
-                    spacing: Style.space(6)
-
-                    Text {
-                      textFormat: Text.PlainText
-                      text: "󰕧"
-                      color: Commons.Color.accent
-                      font.pixelSize: Style.font.caption
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Text {
-                      id: meetLabelText
-                      textFormat: Text.PlainText
-                      text: root.draftMeetCode ? ("meet.google.com/" + root.draftMeetCode) : "Google Meet"
-                      color: Commons.Color.accent
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
+                    textFormat: Text.PlainText
+                    text: root.draftMeetCode ? ("meet.google.com/" + root.draftMeetCode) : "Google Meet"
+                    color: Commons.Color.accent
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
                   }
                 }
 
@@ -4522,7 +4515,7 @@ Ui.Panel {
                   onClicked: {
                     var code = root.draftMeetCode || Model.generateMeetCode()
                     root.draftMeetCode = code
-                    Quickshell.execDetached(["wl-copy", "https://meet.google.com/" + code])
+                    Quickshell.execDetached(["wl-copy", "--", "https://meet.google.com/" + code])
                     root.meetCopied = true
                     copyResetTimer.restart()
                   }

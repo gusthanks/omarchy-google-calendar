@@ -11,7 +11,7 @@ import "Model.js" as Model
 // multi-view (Day / Week / Month / Year) calendar popup.
 Ui.BarWidget {
   id: root
-  moduleName: (settings && settings.id) ? settings.id : "omarchy-google-calendar"
+  moduleName: (settings && settings.id) ? settings.id : "gusthx.clock"
 
   Commons.Translations {
     id: tr
