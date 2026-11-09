@@ -16,6 +16,13 @@ plugins="${OMARCHY_PLUGIN_DIR:-$HOME/.config/omarchy/plugins}"
 live="$plugins/$id"
 branch="$(git -C "$repo" branch --show-current)"
 
+# The id was gusthx.clock before 1.3.0. Move an install under the old id first,
+# so the bar never loads the plugin twice.
+if [[ -e $plugins/gusthx.clock ]]; then
+  echo "Found the old id at $plugins/gusthx.clock: run dev/migrate-id.sh first (one time)." >&2
+  exit 1
+fi
+
 [[ -z $(git -C "$repo" status --porcelain) ]] || { echo "Commit your changes first (deploy installs HEAD)." >&2; exit 1; }
 omarchy plugin validate "$repo"
 "$repo/dev/run.sh" check >/dev/null || { "$repo/dev/run.sh" check; echo "QML does not compile; not deploying." >&2; exit 1; }

@@ -2,7 +2,7 @@
 
 ## Never work on the live plugin
 
-The copy installed at `~/.config/omarchy/plugins/gusthx.clock/` is the one the user's Omarchy
+The copy installed at `~/.config/omarchy/plugins/gusthx.google-calendar/` is the one the user's Omarchy
 shell is running. Saving a file there hot-reloads the plugin in the user's bar, and
 `omarchy restart shell` restarts the whole bar. Doing that over and over while developing
 is disruptive.
@@ -10,7 +10,7 @@ is disruptive.
 - **Edit only this repository** (the working copy in `~/Work/`).
 - **Do not** edit, copy into, or `git` anything under `~/.config/omarchy/plugins/`.
 - **Do not** run `omarchy restart shell`, `omarchy refresh shell`, `omarchy theme set`,
-  or IPC calls (`omarchy-shell gusthx.clock ...`) to test a change.
+  or IPC calls (`omarchy-shell gusthx.google-calendar ...`) to test a change.
 - **Do not** take screenshots of the user's desktop (`grim`) to check your work.
 
 ## Test and capture in isolation
@@ -54,12 +54,20 @@ dev/deploy.sh   # validate + check + tests, update the live plugin, restart the 
 ```
 
 If the live plugin is a plain copy, the script backs it up to
-`~/Work/backups/gusthx.clock.<timestamp>` and replaces it with a git checkout of this
+`~/Work/backups/gusthx.google-calendar.<timestamp>` and replaces it with a git checkout of this
 repo; afterwards it fast-forwards. The shell's hot reload is not reliable for plugins (the
 old version can stay on screen), so the deploy always ends with one
 `omarchy restart shell`. Do not tell the user something is done before this ran. Never use
 `omarchy refresh shell` (it resets the bar layout). Never deploy or restart in the middle
 of a task.
+
+## The old id (`gusthx.clock`)
+
+Before 1.3.0 the plugin id was `gusthx.clock`. `dev/migrate-id.sh` moves an existing
+install to the new id once (backup, new checkout, the bar entry in `shell.json`, the
+`~/.local/bin/omarchy-gcal` link) and is safe to re-run; `dev/deploy.sh` refuses to run
+while `~/.config/omarchy/plugins/gusthx.clock` still exists. Test it only against a fake
+`HOME` (e.g. `HOME=/run/user/1000/fakehome dev/migrate-id.sh`), never the real one.
 
 ## Other conventions
 

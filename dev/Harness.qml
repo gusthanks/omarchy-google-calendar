@@ -36,14 +36,14 @@ ShellRoot {
   // What the bar widget hands its panel, minus anything that runs a process.
   QtObject {
     id: mockHost
-    readonly property string moduleName: "gusthx.clock"
+    readonly property string moduleName: "gusthx.google-calendar"
     readonly property string gcalBinPath: shell.mockBin
     function triggerSync() {}
     function reloadEventsCache() {}
   }
 
   readonly property var panelSettings: ({
-    id: "gusthx.clock",
+    id: "gusthx.google-calendar",
     defaultViewMode: shell.view,
     autoSync: false,
     notificationsEnabled: false,
@@ -101,7 +101,7 @@ ShellRoot {
         anchors.centerIn: parent
         height: Commons.Style.bar.sizeHorizontal
         settings: ({
-          id: "gusthx.clock",
+          id: "gusthx.google-calendar",
           autoSync: false,
           notificationsEnabled: false,
           showBarEventBadge: true,
@@ -130,7 +130,7 @@ ShellRoot {
 
   FloatingWindow {
     visible: true
-    title: "gusthx.clock dev"
+    title: "gusthx.google-calendar dev"
     implicitWidth: offLoader.item ? offLoader.item.width : 10
     implicitHeight: offLoader.item ? offLoader.item.height : 10
     color: Commons.Color.background

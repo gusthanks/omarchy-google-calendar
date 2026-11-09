@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "gusthx.clock",
-  "name": "Google Calendar",
-  "version": "1.2.0",
-  "author": "Gustavo Costa",
+  "id": "gusthx.google-calendar",
+  "name": "Calendar for Google",
+  "version": "1.3.0",
+  "author": "Gustavo Costa (gusthx)",
   "license": "MIT",
-  "description": "Google Calendar synchronization and multi-view agenda (Day, Week, Month, Year) for Omarchy",
+  "description": "A bar clock whose popup is a full agenda (Day, Week, Month, Year) synced with Google Calendar through a secret iCal address or your own OAuth client. Not affiliated with Google.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,11 +13,16 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Google Calendar",
+    "displayName": "Calendar for Google",
     "description": "Date/time label with Google Calendar sync and Day, Week, Month, Year views",
     "category": "Time",
     "defaultSection": "center",
-    "allowMultiple": false
+    "allowMultiple": false,
+    "aliases": [
+      "calendar",
+      "agenda",
+      "clock"
+    ]
   },
   "omarchy": {
     "clonedFrom": "omarchy.clock"

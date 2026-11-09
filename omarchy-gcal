@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-omarchy-gcal: Google Calendar + iCal (.ics) + Local Schedule backend for Omarchy Clock.
+omarchy-gcal: Google Calendar + iCal (.ics) + local schedule backend for the
+Calendar for Google Omarchy plugin (gusthx.google-calendar). Not affiliated with Google.
 Pure Python 3 standard library implementation (no pip dependencies required).
 """
 
@@ -1716,7 +1717,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Omarchy Google Calendar Sync & Schedule CLI")
+    parser = argparse.ArgumentParser(description="Calendar for Google (Omarchy plugin): sync and schedule CLI. Not affiliated with Google.")
     sub = parser.add_subparsers(dest="command")
 
     p_sync = sub.add_parser("sync", help="Synchronize Google Calendar / iCal / local events")

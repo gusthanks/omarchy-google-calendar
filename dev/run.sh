@@ -26,7 +26,7 @@ omarchy_shell="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
 # A throwaway Quickshell config: Omarchy's Commons and a shadow copy of its
 # Ui module whose KeyboardPanel (a layer-shell window) is the dev stub, this
 # repo as "plugin", and the harness as shell.qml.
-cfg="${XDG_RUNTIME_DIR:-/tmp}/gusthx-clock-dev"
+cfg="${XDG_RUNTIME_DIR:-/tmp}/gusthx-google-calendar-dev"
 rm -rf "$cfg"
 mkdir -p "$cfg/Ui" "$cfg/state" "$cfg/config"
 ln -s "$omarchy_shell/Commons" "$cfg/Commons"

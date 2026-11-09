@@ -33,7 +33,7 @@ const {
 
 const DEFAULT_EVENT_COLOR = "#039be5"; // Model.js default for events without a valid color
 
-describe('gusthx.clock Model.js', () => {
+describe('gusthx.google-calendar Model.js', () => {
   describe('pad2', () => {
     it('pads single digits', () => {
       expect(pad2(0)).toBe('00')

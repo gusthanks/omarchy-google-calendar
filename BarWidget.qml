@@ -11,7 +11,7 @@ import "Model.js" as Model
 // multi-view (Day / Week / Month / Year) calendar popup.
 Ui.BarWidget {
   id: root
-  moduleName: (settings && settings.id) ? settings.id : "gusthx.clock"
+  moduleName: (settings && settings.id) ? settings.id : "gusthx.google-calendar"
 
   Commons.Translations {
     id: tr
@@ -88,7 +88,7 @@ Ui.BarWidget {
         else if (ev.meetLink) body += "\n󰌹 " + Model.neutralizeMarkup(ev.meetLink, 80)
 
         var meetUrl = ev.actionUrl || ev.meetLink || ev.htmlLink || ""
-        var cmd = ["omarchy-notification-send", "--app-name", "Google Calendar", "-g", "󰸗", "-u", "normal", title, body]
+        var cmd = ["omarchy-notification-send", "--app-name", "Calendar for Google", "-g", "󰸗", "-u", "normal", title, body]
         if (meetUrl !== "") {
           cmd.push("--exec", "omarchy-launch-browser", meetUrl)
         }

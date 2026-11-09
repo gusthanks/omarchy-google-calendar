@@ -11,8 +11,8 @@ import "Model.js" as Model
 // for the Omarchy clock widget.
 Ui.Panel {
   id: root
-  moduleName: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.clock"
-  ipcTarget: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.clock"
+  moduleName: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.google-calendar"
+  ipcTarget: (hostWidget && hostWidget.moduleName) ? hostWidget.moduleName : "gusthx.google-calendar"
   manageIpc: false
 
   Commons.Translations {
