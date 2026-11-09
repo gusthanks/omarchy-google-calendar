@@ -1076,6 +1076,8 @@ function generateMeetCode() {
 if (typeof module !== "undefined") {
   module.exports = {
     msUntilNextTick: msUntilNextTick,
+    pad2: pad2,
+    coerceWeekStart: coerceWeekStart,
     dateKey: dateKey,
     keyForDate: keyForDate,
     parseDateKey: parseDateKey,

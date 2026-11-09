@@ -1,9 +1,9 @@
 // Unit tests for Model.js pure calendar logic, security sanitization, and view models.
-// Run with: node --test tests/test_model.js
+// Run with: node --test dev/tests/test_model.js
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const Model = require("../Model.js");
+const Model = require("../../Model.js");
 
 test("dateKey and parseDateKey round-trip", () => {
   const key = Model.dateKey(2026, 10, 7);

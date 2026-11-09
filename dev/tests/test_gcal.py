@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Unit tests for omarchy-gcal RFC 5545 parsing, event math, and backend CLI.
-Run with: python3 -m unittest discover -s tests -p "test_*.py"
+Run with: dev/test.sh (or python3 -m unittest discover -s dev/tests -t . -p "test_*.py")
 """
 
 import datetime
@@ -17,12 +17,25 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 # Load omarchy-gcal module dynamically (file does not have .py extension)
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 GCAL_SCRIPT = REPO_ROOT / "omarchy-gcal"
 loader = importlib.machinery.SourceFileLoader("omarchy_gcal", str(GCAL_SCRIPT))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 gcal = importlib.util.module_from_spec(spec)
 loader.exec_module(gcal)
+
+# Never touch the real home: ensure_dirs() also manages ~/.local/bin/omarchy-gcal,
+# and the default config/state dirs live under ~. Point everything at a temp home
+# for the whole run (the integration tests narrow these further per test).
+_TEST_HOME = tempfile.TemporaryDirectory(prefix="omarchy-gcal-test-home.")
+gcal.HOME = Path(_TEST_HOME.name)
+gcal.CONFIG_DIR = gcal.HOME / ".config" / "omarchy" / "gcal"
+gcal.STATE_DIR = gcal.HOME / ".local" / "state" / "omarchy" / "gcal"
+gcal.CONFIG_FILE = gcal.CONFIG_DIR / "config.json"
+gcal.CREDENTIALS_FILE = gcal.CONFIG_DIR / "credentials.json"
+gcal.TOKEN_FILE = gcal.CONFIG_DIR / "token.json"
+gcal.LOCAL_EVENTS_FILE = gcal.STATE_DIR / "local_events.json"
+gcal.EVENTS_CACHE_FILE = gcal.STATE_DIR / "events.json"
 
 
 class TestIcsParsing(unittest.TestCase):

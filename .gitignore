@@ -3,11 +3,21 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# State and local caches
+# Node (tests use node's built-in runner; nothing to install)
+node_modules/
+package-lock.json
+
+# Helper state, tokens and caches: these live in ~/.config/omarchy/gcal and
+# ~/.local/state/omarchy/gcal, never in the plugin; ignored in case one is
+# copied here by mistake.
 .local_events.json
 events.json
 token.json
 credentials.json
+client_secret_*.json
+
+# Dev harness output that is not a doc image
+dev/out/
 
 # Editors / OS
 .DS_Store
