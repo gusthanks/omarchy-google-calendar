@@ -130,7 +130,7 @@ Ui.BarWidget {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      root.calendarPayload = Model.parseEventsPayload(text())
+      root.calendarPayload = Model.parseEventsPayload(text(), tr.t("events.untitled"))
       root.injectPanel()
     }
     onLoadFailed: {

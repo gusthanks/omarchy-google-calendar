@@ -43,6 +43,12 @@ else
   mv "$stage" "$live"
 fi
 echo "Deployed $(git -C "$repo" log --oneline -1) to $live"
+# `omarchy plugin update` pulls from the live copy's origin (GitHub), not from
+# this repo: warn when what was just installed is not pushed there yet.
+if git -C "$repo" remote get-url origin >/dev/null 2>&1 \
+  && [[ -z $(git -C "$repo" branch -r --contains HEAD 2>/dev/null) ]]; then
+  echo "Note: HEAD is not pushed to origin; 'omarchy plugin update' pulls from origin, so push before relying on it." >&2
+fi
 
 # The shell's hot reload is not reliable for plugins (the old version can stay
 # on screen), so finish with one restart. Skip with NO_RESTART=1.

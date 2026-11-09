@@ -1537,7 +1537,7 @@ Ui.Panel {
                   Button {
                     id: barBadgeToggleBtn
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.showBarEventBadge ? tr.t("sync.autoSyncOn") : tr.t("sync.autoSyncOff")
+                    text: root.showBarEventBadge ? tr.t("toggle.on") : tr.t("toggle.off")
                     selected: root.showBarEventBadge
                     bordered: true
                     foreground: root.contentForeground
@@ -2054,7 +2054,10 @@ Ui.Panel {
                 width: parent.width
                 height: Style.space(240)
                 contentWidth: width
-                contentHeight: 24 * weekViewCol.weekHourHeight
+                // Room above the first hour line so its label (drawn half above
+                // the line) is never cut by the clip at the top.
+                readonly property int topInset: Style.space(8)
+                contentHeight: 24 * weekViewCol.weekHourHeight + 2 * topInset
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
@@ -2078,6 +2081,7 @@ Ui.Panel {
 
                 Item {
                   id: weekCanvas
+                  y: weekTimelineFlick.topInset
                   width: weekTimelineFlick.width
                   height: 24 * weekViewCol.weekHourHeight
 
@@ -3008,7 +3012,10 @@ Ui.Panel {
                 width: parent.width
                 height: Style.space(280)
                 contentWidth: width
-                contentHeight: 24 * dayHourHeight
+                // Room above the first hour line so its label (drawn half above
+                // the line) is never cut by the clip at the top.
+                readonly property int topInset: Style.space(8)
+                contentHeight: 24 * dayHourHeight + 2 * topInset
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
@@ -3035,6 +3042,7 @@ Ui.Panel {
 
                 Item {
                   id: dayCanvas
+                  y: dayTimelineFlick.topInset
                   width: dayTimelineFlick.width
                   height: 24 * dayTimelineFlick.dayHourHeight
 
@@ -3480,13 +3488,18 @@ Ui.Panel {
                             anchors.right: dayEventActions.left
                             anchors.rightMargin: Style.space(4)
                             anchors.top: parent.top
-                            anchors.topMargin: Style.space(3)
+                            anchors.topMargin: compact ? Style.space(1) : Style.space(3)
                             anchors.bottom: parent.bottom
-                            anchors.bottomMargin: Style.space(4)
+                            anchors.bottomMargin: compact ? 0 : Style.space(4)
                             spacing: Style.space(1)
                             clip: true
 
+                            // Short cards (under ~45 min) get one "09:00 · Title" line
+                            // instead of a time row that pushes the title out of view.
+                            readonly property bool compact: dayEventCard.height < Style.space(32)
+
                             Text {
+                              visible: !parent.compact
                               textFormat: Text.PlainText
                               width: parent.width
                               elide: Text.ElideRight
@@ -3501,7 +3514,9 @@ Ui.Panel {
                               textFormat: Text.PlainText
                               width: parent.width
                               elide: Text.ElideRight
-                              text: modelData.title
+                              text: parent.compact
+                                ? Model.formatMinutes(dayEventCard.liveStartMinutes) + " · " + modelData.title
+                                : modelData.title
                               color: root.contentForeground
                               font.family: root.contentFontFamily
                               font.pixelSize: Style.font.bodySmall

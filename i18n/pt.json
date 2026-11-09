@@ -65,6 +65,8 @@
   "sync.autoSyncLabel": "Atualização periódica em segundo plano (a cada %1 min)",
   "sync.autoSyncOn": "Ativa",
   "sync.autoSyncOff": "Pausada",
+  "toggle.on": "Ligado",
+  "toggle.off": "Desligado",
   "sync.icsLabel": "URL SECRETA ICAL (.ICS) DO GOOGLE CALENDAR",
   "sync.icsPlaceholder": "https://calendar.google.com/calendar/ical/.../basic.ics",
   "sync.icsHint": "Google Calendar → Definições → Calendário → Endereço secreto no formato iCal",

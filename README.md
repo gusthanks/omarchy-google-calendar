@@ -138,15 +138,17 @@ omarchy-gcal auth
 
 | Shortcut | Description |
 |---|---|
-| `1`, `2`, `3`, `4` | Switch to **Day**, **Week**, **Month**, **Year** view |
-| `[` / `]` or `h` / `l` | Move backward / forward in time (by day, week, month, or year) |
-| `k` / `j` | Vertical step (move by week or year matching Up/Down arrows) |
+| `1`–`4` or `d` / `w` / `m` / `y` | Switch to **Day**, **Week**, **Month**, **Year** view |
+| `v` / `V` | Cycle to the next / previous view |
+| `[` / `]` or `h` / `l` | Move backward / forward by one day, week, month or year (the open view) |
+| `k` / `j` | Move up / down: by week (Day view), by month (Week view), by year (Month and Year views) |
+| `{` / `}` | Move backward / forward by one year |
 | `/` | Open **Search events** drawer to live-filter agenda |
 | `T` | Jump back to **Today** |
 | `N` or `+` | Open **+ Event** quick creation drawer |
 | `R` | Force immediate refresh / synchronization |
 | `S` | Toggle Google Calendar sync settings drawer |
-| `W` | Toggle week start day (Monday / Sunday) in Month view |
+| `W` | Switch to Week view; in Week view, toggle the week start (Monday / Sunday) |
 | `Esc` | Close active drawer or calendar panel |
 
 ## Command line
@@ -182,7 +184,7 @@ The widget reads these optional keys from its entry in the bar layout
 | `format` / `formatAlt` | `dddd dd MMM h:mm AP` / `d MMMM 'W'ww yyyy` | Clock formats (right-click cycles through presets) |
 | `verticalFormat` / `verticalFormatAlt` | `HH\n—\nmm` / … | Formats for a vertical bar |
 | `defaultViewMode` | `month` | `day`, `week`, `month` or `year` |
-| `weekStartDay` | your locale | `monday`, `sunday`, … (`W` toggles it) |
+| `weekStartDay` | your locale | `monday`, `sunday`, … (`W` in Week view toggles it) |
 | `autoSync` | `true` | Sync in the background |
 | `syncIntervalMinutes` | `10` | How often |
 | `showBarEventBadge` | `false` | Show the next event next to the clock |
@@ -205,7 +207,9 @@ Everything stays on your machine except the requests below; there is no telemetr
 - `~/.config/omarchy/gcal/credentials.json` and `token.json`: the OAuth client file and
   the access/refresh token.
 - `~/.local/state/omarchy/gcal/events.json`: the synced events (about two years back and
-  one forward), read by the bar widget; `local_events.json`: events created offline.
+  one forward), read by the bar widget. It also holds a copy of your secret iCal
+  address(es) for the settings field, so treat it like `config.json` and don't share it
+  when reporting a bug. `local_events.json`: events created offline.
 - `~/.local/bin/omarchy-gcal`: a symlink to the helper so you can use it in a terminal.
   It is only created when nothing is there.
 

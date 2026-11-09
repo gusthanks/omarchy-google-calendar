@@ -103,6 +103,17 @@ test("sanitizeHexColor and sanitizeHttpsUrl", () => {
   assert.equal(Model.sanitizeHttpsUrl("javascript:evil()"), "");
 });
 
+test("untitled events use the localized label", () => {
+  const base = { id: "u1", startDate: "2026-11-07", startTime: "09:00", endTime: "09:30" };
+  assert.equal(Model.sanitizeEvent(base).title, "(No title)");
+  assert.equal(Model.sanitizeEvent(base, "(Sem título)").title, "(Sem título)");
+  // Caches written by older helpers stored the Portuguese placeholder.
+  assert.equal(Model.sanitizeEvent(Object.assign({ title: "(Sem título)" }, base), "(No title)").title, "(No title)");
+  const payload = Model.parseEventsPayload(JSON.stringify({ events: [base] }), "(Untitled)");
+  assert.equal(payload.events[0].title, "(Untitled)");
+  assert.equal(payload.eventsByDate["2026-11-07"][0].title, "(Untitled)");
+});
+
 test("sanitizeEvent and indexEventsByDate", () => {
   const rawEv = {
     id: "test-1",

@@ -106,6 +106,21 @@ END:VCALENDAR"""
         self.assertFalse(ev["allDay"])
         self.assertEqual(ev["meetLink"], "https://meet.google.com/xyz-uvwx-rst")
 
+    def test_vevent_without_summary_has_empty_title(self):
+        # The panel translates an empty title ("(No title)"); the helper must not
+        # store a hard-coded language.
+        ics = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:ev-untitled
+DTSTART:20261107T140000Z
+DTEND:20261107T150000Z
+END:VEVENT
+END:VCALENDAR"""
+        events = gcal.parse_ics_content(ics, datetime.date(2026, 11, 1), datetime.date(2026, 11, 30), self.tz)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["title"], "")
+
     def test_vevent_with_duration(self):
         ics = """BEGIN:VCALENDAR
 BEGIN:VEVENT

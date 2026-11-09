@@ -304,7 +304,9 @@ function formatMinutes(totalMinutes) {
   return pad2(h) + ":" + pad2(m)
 }
 
-function sanitizeEvent(raw) {
+// untitledLabel: the localized "(No title)" shown for events without a title.
+// The helper stores an empty title; older caches stored "(Sem título)".
+function sanitizeEvent(raw, untitledLabel) {
   if (!raw || typeof raw !== "object") return null
   var startParsed = parseDateKey(raw.startDate || raw.dateKey)
   if (!startParsed) return null
@@ -342,7 +344,9 @@ function sanitizeEvent(raw) {
   var id = neutralizeMarkup(raw.id || "", 128)
   if (!id) id = "ev:" + startKey + ":" + neutralizeMarkup(raw.title || "untitled", 32)
 
-  var title = neutralizeMarkup(raw.title || "(Sem título)", 200) || "(Sem título)"
+  var untitled = neutralizeMarkup(untitledLabel || "(No title)", 200) || "(No title)"
+  var rawTitle = raw.title === "(Sem título)" ? "" : raw.title
+  var title = neutralizeMarkup(rawTitle || "", 200) || untitled
   var location = neutralizeMarkup(raw.location || "", 240)
   var description = neutralizeMarkup(raw.description || "", 600)
   var calendarName = neutralizeMarkup(raw.calendarName || "Google Calendar", 80)
@@ -410,7 +414,7 @@ function indexEventsByDate(events) {
   return map
 }
 
-function parseEventsPayload(rawText) {
+function parseEventsPayload(rawText, untitledLabel) {
   var empty = {
     source: "local",
     connected: false,
@@ -431,7 +435,7 @@ function parseEventsPayload(rawText) {
     var rawList = Array.isArray(parsed.events) ? parsed.events.slice(0, 2000) : []
     var cleanList = []
     for (var i = 0; i < rawList.length; i++) {
-      var item = sanitizeEvent(rawList[i])
+      var item = sanitizeEvent(rawList[i], untitledLabel)
       if (item) cleanList.push(item)
     }
     var byDate = indexEventsByDate(cleanList)

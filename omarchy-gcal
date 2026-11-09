@@ -353,7 +353,7 @@ def parse_google_event(item: dict, cal_name: str, cal_color: str, cal_id: str, t
     if not event_id:
         return None
 
-    title = clean_str(item.get("summary") or "(Sem título)", MAX_TITLE_LEN)
+    title = clean_str(item.get("summary") or "", MAX_TITLE_LEN)
     location = clean_str(item.get("location", ""), MAX_LOC_LEN)
     description = clean_str(item.get("description", ""), MAX_DESC_LEN)
     html_link = sanitize_url(item.get("htmlLink", ""))
@@ -951,7 +951,7 @@ def build_ics_vevent(
     if overridden_by_uid and "RECURRENCE-ID" not in prop_map and uid in overridden_by_uid:
         exdates = exdates | overridden_by_uid[uid]
 
-    title = clean_str(unescape_ics_text(prop_map.get("SUMMARY", ({}, "(Sem título)"))[1]), MAX_TITLE_LEN) or "(Sem título)"
+    title = clean_str(unescape_ics_text(prop_map.get("SUMMARY", ({}, ""))[1]), MAX_TITLE_LEN)
     location = clean_str(unescape_ics_text(prop_map.get("LOCATION", ({}, ""))[1]), MAX_LOC_LEN)
     description = clean_str(unescape_ics_text(prop_map.get("DESCRIPTION", ({}, ""))[1]), MAX_DESC_LEN)
     url = sanitize_url(unescape_ics_text(prop_map.get("URL", ({}, ""))[1]))
@@ -1056,7 +1056,7 @@ def load_local_events() -> list[dict]:
             "remoteId": clean_str(item.get("remoteId", ""), 128),
             "calendarId": clean_str(item.get("calendarId", "local"), 80),
             "calendarName": clean_str(item.get("calendarName", "Agenda Local"), 80),
-            "title": clean_str(item.get("title") or "(Sem título)", MAX_TITLE_LEN),
+            "title": clean_str(item.get("title") or "", MAX_TITLE_LEN),
             "startDate": start_date,
             "endDate": end_date,
             "startTime": clean_str(item.get("startTime", ""), 5),
@@ -1839,7 +1839,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             st = ev.get("startTime", "")
             et = ev.get("endTime", "")
             t_str = f"{st} - {et}" if et else st
-        title = clean_str(ev.get("title", "(No title)"), 32)
+        title = clean_str(ev.get("title") or "(No title)", 32)
         loc = clean_str(ev.get("meetLink") or ev.get("location") or "", 24)
         print(f"{d_str:<12} {t_str:<13} {title:<34} {loc}")
     return 0
