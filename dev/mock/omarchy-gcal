@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Dev-only stand-in for omarchy-gcal: the harness points the widget and panel
+# here, so nothing ever syncs, adds or deletes a real event. Calls are logged
+# to $MOCK_GCAL_LOG for inspection.
+[ -n "${MOCK_GCAL_LOG:-}" ] && printf '%s\n' "$*" >>"$MOCK_GCAL_LOG"
+case "${1:-}" in
+  geocode) echo '[{"title":"Studio 2","address":"Rua Exemplo 123, Example City","full":"Studio 2, Rua Exemplo 123, Example City","lat":0,"lon":0}]' ;;
+  status)  echo '{"source":"ics","connected":true,"eventCount":0}' ;;
+esac
+exit 0

@@ -13,33 +13,60 @@ is disruptive.
   or IPC calls (`omarchy-shell gusthx.clock ...`) to test a change.
 - **Do not** take screenshots of the user's desktop (`grim`) to check your work.
 
-## Test in isolation
+## Test and capture in isolation
 
-Run the plugin's QML in a **separate** Quickshell instance that never touches the running
-shell: make a throwaway config dir with symlinks to Omarchy's libraries and this repo, plus
-a small `shell.qml` that shows the component you are working on.
+`dev/run.sh` starts a **separate** Quickshell instance with Omarchy's `Commons` library,
+a shadow copy of its `Ui` module (whose `KeyboardPanel`, a layer-shell window, is swapped
+for `dev/stubs/KeyboardPanel.qml`) and this repo. It never touches the running shell.
+It feeds MOCK events (`dev/mock/events.py`) and a stub helper (`dev/mock/omarchy-gcal`),
+with auto-sync and notifications off: the user's calendar, tokens and config are never
+read, and nothing is synced, created or deleted. Captures render offscreen (Qt's
+offscreen platform), so nothing shows on the desktop.
 
 ```bash
-cfg="$XDG_RUNTIME_DIR/gusthx.clock-dev"; rm -rf "$cfg"; mkdir -p "$cfg"
-ln -s /usr/share/omarchy/shell/Commons "$cfg/Commons"
-ln -s /usr/share/omarchy/shell/Ui "$cfg/Ui"
-ln -s "$PWD" "$cfg/plugin"
-# write $cfg/shell.qml: ShellRoot { PanelWindow { ... import "plugin" as P ... } }
-quickshell -n -p "$cfg/shell.qml"
+dev/run.sh check        # compile every type against the REAL Ui (deploy runs this too)
+dev/run.sh panel [VIEW] # docs/view-<day|week|month|year>.png
+dev/run.sh settings     # docs/settings.png
+dev/run.sh event        # docs/new-event.png
+dev/run.sh bar          # docs/bar.png
+dev/run.sh docs         # all captures
+dev/run.sh preview      # a window with the panel (opens on the desktop: only if asked)
+dev/test.sh             # unit tests (helper + Model.js), all in temp dirs
 ```
 
-For screenshots, draw on a background layer (`WlrLayershell.layer: WlrLayer.Background`,
-`keyboardFocus: None`) and save with `item.grabToImage(r => r.saveToFile(path))`, then
-`Qt.quit()`. A full working example is `dev/` in
-[omarchy-agents-pet](https://github.com/gusthanks/omarchy-agents-pet).
+Look at the rendered images to verify a change. QML warnings from the harness are
+printed by `dev/run.sh`; fix them before going further. Also run
+`omarchy plugin validate .`.
 
-Also run `omarchy plugin validate .`. What can't be rendered in isolation (live data in
-the real bar) is checked by the user after deploying, not by you on their live shell.
+Never run the real `omarchy-gcal` against the user's home while testing (it syncs their
+account and manages `~/.local/bin/omarchy-gcal`). Tests and the harness set
+`OMARCHY_GCAL_STATE_DIR`, `OMARCHY_GCAL_CONFIG_DIR` and `OMARCHY_GCAL_NO_CLI_LINK=1`.
+
+What the harness cannot render (the real bar, live data, popup placement) is checked by
+the user after deploying, not by you on their live shell.
 
 ## Deploy once, at the end, and restart the bar
 
-When ALL the requested work is finished, tested in isolation and committed, update the
-installed copy once and then run `omarchy restart shell` once. The shell's hot reload is
-not reliable for plugins (the old version can stay on screen), so do not tell the user
-something is done before the restart ran. Never deploy or restart in the middle of a task,
-and never use `omarchy refresh shell` (it resets the bar layout).
+When ALL the requested work is finished, tested in the harness and committed:
+
+```bash
+dev/deploy.sh   # validate + check + tests, update the live plugin, restart the shell once
+```
+
+If the live plugin is a plain copy, the script backs it up to
+`~/Work/backups/gusthx.clock.<timestamp>` and replaces it with a git checkout of this
+repo; afterwards it fast-forwards. The shell's hot reload is not reliable for plugins (the
+old version can stay on screen), so the deploy always ends with one
+`omarchy restart shell`. Do not tell the user something is done before this ran. Never use
+`omarchy refresh shell` (it resets the bar layout). Never deploy or restart in the middle
+of a task.
+
+## Other conventions
+
+- Repo root = plugin root (the layout `omarchy plugin add <url>` expects). Tests and
+  tooling live in `dev/`.
+- Strings go through the plugin's own catalog in `i18n/` (`Commons.Translations`, `tr`),
+  never through `Commons.I18n` keys, which Omarchy may rename.
+- Never print or show the secret iCal address or tokens (log the host only).
+- The bar widget is always visible on an older laptop: keep it cheap (no extra timers or
+  processes); heavy work belongs in the panel content, which loads on first open.

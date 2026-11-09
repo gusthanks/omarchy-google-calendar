@@ -77,5 +77,21 @@
   "search.button": "Buscar eventos (/)",
   "search.placeholder": "Pesquisar eventos por título, descrição ou local…",
   "search.noResults": "Nenhum evento encontrado",
-  "search.title": "BUSCA DE EVENTOS"
+  "search.title": "BUSCA DE EVENTOS",
+  "clock.toggleFormat": "Clique com o botão direito para alternar o formato",
+  "clock.monthYear": "%1 de %2",
+  "clock.dayMonthFormat": "d 'de' MMMM",
+  "clock.backToToday": "Voltar para hoje",
+  "clock.born": "NASCIMENTO",
+  "clock.year": "ano",
+  "clock.liveTo": "VIVER ATÉ",
+  "clock.life": "VIDA",
+  "clock.weekShort": "S",
+  "clock.startWeeksOn": "Semanas começam em %1",
+  "clock.previousMonth": "Mês anterior",
+  "clock.nextMonth": "Próximo mês",
+  "clock.mementoMori": "Memento Mori",
+  "events.event": "Evento",
+  "events.untitled": "(Sem título)",
+  "form.mapsLabel": "Google Maps"
 }

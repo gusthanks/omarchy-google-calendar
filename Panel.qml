@@ -112,7 +112,7 @@ Ui.Panel {
   // ---- Locale & Labels
   readonly property int weekStart: Model.normalizedWeekStart(setting("weekStartDay", null), labelLocale.firstDayOfWeek)
   readonly property var labelLocale: Qt.locale(Commons.I18n.formatLocale)
-  readonly property string monthYearLabel: Commons.I18n.t("clock.monthYear")
+  readonly property string monthYearLabel: tr.t("clock.monthYear")
     .arg(labelLocale.standaloneMonthName(viewMonth, Locale.LongFormat))
     .arg(viewDate.toLocaleDateString(labelLocale, "yyyy"))
   readonly property string nextWeekStartLabel: labelLocale.dayName(Model.toggledWeekStart(weekStart), Locale.LongFormat)
@@ -143,7 +143,7 @@ Ui.Panel {
   }
 
   readonly property string dayHeaderLabel: {
-    var dText = selectedDateObj.toLocaleDateString(labelLocale, Commons.I18n.t("clock.dayMonthFormat"))
+    var dText = selectedDateObj.toLocaleDateString(labelLocale, tr.t("clock.dayMonthFormat"))
     var wName = labelLocale.dayName(dayData.weekday, Locale.LongFormat)
     var rel = ""
     if (dayData.dayDiff === 0) rel = " · " + tr.t("nav.today")
@@ -519,7 +519,7 @@ Ui.Panel {
 
   function commitNewEvent() {
     var rawTitle = root.newEventTitleText.trim()
-    var title = rawTitle !== "" ? rawTitle : "(Sem título)"
+    var title = rawTitle !== "" ? rawTitle : tr.t("events.untitled")
     var validated = Model.validateQuickEvent({
       title: title,
       dateKey: root.draftDateKey || root.selectedKey,
@@ -762,7 +762,7 @@ Ui.Panel {
                 id: heroDate
                 textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.today.toLocaleDateString(root.labelLocale, Commons.I18n.t("clock.dayMonthFormat"))
+                text: root.today.toLocaleDateString(root.labelLocale, tr.t("clock.dayMonthFormat"))
                 color: heroMouse.containsMouse
                   ? Style.hoverStateColor(root.contentForeground, Commons.Color.accent)
                   : root.contentForeground
@@ -785,7 +785,7 @@ Ui.Panel {
 
               PanelToolTip {
                 visible: heroMouse.containsMouse
-                text: Commons.I18n.t("clock.backToToday")
+                text: tr.t("clock.backToToday")
                 fontFamily: root.contentFontFamily
               }
             }
@@ -816,7 +816,7 @@ Ui.Panel {
 
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
-                  text: Commons.I18n.t("clock.born")
+                  text: tr.t("clock.born")
                   textFormat: Text.PlainText
                   color: Qt.darker(root.contentForeground, 1.5)
                   font.family: root.contentFontFamily
@@ -828,7 +828,7 @@ Ui.Panel {
                   id: bornField
                   width: Style.space(70)
                   anchors.verticalCenter: parent.verticalCenter
-                  placeholderText: Commons.I18n.t("clock.year")
+                  placeholderText: tr.t("clock.year")
                   foreground: root.contentForeground
                   font.family: root.contentFontFamily
                   inputMethodHints: Qt.ImhDigitsOnly
@@ -838,7 +838,7 @@ Ui.Panel {
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
                   leftPadding: Style.space(6)
-                  text: Commons.I18n.t("clock.liveTo")
+                  text: tr.t("clock.liveTo")
                   textFormat: Text.PlainText
                   color: Qt.darker(root.contentForeground, 1.5)
                   font.family: root.contentFontFamily
@@ -923,7 +923,7 @@ Ui.Panel {
                 id: lifeLabel
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: Commons.I18n.t("clock.life")
+                text: tr.t("clock.life")
                 textFormat: Text.PlainText
                 color: Qt.darker(root.contentForeground, 1.5)
                 font.family: root.contentFontFamily
@@ -974,7 +974,7 @@ Ui.Panel {
 
                 PanelToolTip {
                   visible: lifeMouse.containsMouse
-                  text: "Memento Mori"
+                  text: tr.t("clock.mementoMori")
                   fontFamily: root.contentFontFamily
                 }
               }
@@ -1297,7 +1297,7 @@ Ui.Panel {
                         width: parent.width - Style.space(170)
                         elide: Text.ElideRight
                         anchors.verticalCenter: parent.verticalCenter
-                        text: Model.neutralizeMarkup(modelData.title || "(Sem título)", 50)
+                        text: Model.neutralizeMarkup(modelData.title || tr.t("events.untitled"), 50)
                         color: root.contentForeground
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.bodySmall
@@ -1667,7 +1667,7 @@ Ui.Panel {
                       Text {
                         anchors.centerIn: parent
                         textFormat: Text.PlainText
-                        text: Commons.I18n.t("clock.weekShort")
+                        text: tr.t("clock.weekShort")
                         color: weekStartMouse.containsMouse
                           ? Style.hoverStateColor(root.contentForeground, Commons.Color.accent)
                           : Qt.darker(root.contentForeground, 1.9)
@@ -1687,7 +1687,7 @@ Ui.Panel {
 
                       PanelToolTip {
                         visible: weekStartMouse.containsMouse
-                        text: Commons.I18n.t("clock.startWeeksOn").arg(root.nextWeekStartLabel)
+                        text: tr.t("clock.startWeeksOn").arg(root.nextWeekStartLabel)
                         fontFamily: root.contentFontFamily
                       }
                     }
@@ -1851,7 +1851,7 @@ Ui.Panel {
                   anchors.leftMargin: -Style.space(8)
                   anchors.verticalCenter: parent.verticalCenter
                   iconText: Commons.I18n.rightToLeft ? "󰅂" : "󰅁"
-                  tooltipText: Commons.I18n.t("clock.previousMonth")
+                  tooltipText: tr.t("clock.previousMonth")
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   onClicked: root.moveMonth(-1)
@@ -1862,7 +1862,7 @@ Ui.Panel {
                   anchors.rightMargin: -Style.space(8)
                   anchors.verticalCenter: parent.verticalCenter
                   iconText: Commons.I18n.rightToLeft ? "󰅁" : "󰅂"
-                  tooltipText: Commons.I18n.t("clock.nextMonth")
+                  tooltipText: tr.t("clock.nextMonth")
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   onClicked: root.moveMonth(1)
@@ -2258,7 +2258,7 @@ Ui.Panel {
                               textFormat: Text.PlainText
                               width: parent.width
                               elide: Text.ElideRight
-                              text: root.newEventTitleText !== "" ? root.newEventTitleText : "(Sem título)"
+                              text: root.newEventTitleText !== "" ? root.newEventTitleText : tr.t("events.untitled")
                               color: root.contentForeground
                               font.family: root.contentFontFamily
                               font.pixelSize: Math.max(9, Style.font.caption - 1)
@@ -3204,7 +3204,7 @@ Ui.Panel {
                         textFormat: Text.PlainText
                         width: parent.width
                         elide: Text.ElideRight
-                        text: root.newEventTitleText !== "" ? root.newEventTitleText : "(Sem título)"
+                        text: root.newEventTitleText !== "" ? root.newEventTitleText : tr.t("events.untitled")
                         color: root.contentForeground
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.bodySmall
@@ -4279,7 +4279,7 @@ Ui.Panel {
               onTextChanged: { root.newEventTitleText = text }
               foreground: root.contentForeground
               font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodyLarge
+              font.pixelSize: Style.font.heading
               font.bold: true
               verticalPadding: Style.space(4)
               horizontalPadding: Style.space(2)
@@ -4312,7 +4312,7 @@ Ui.Panel {
                   id: eventPillText
                   anchors.centerIn: parent
                   textFormat: Text.PlainText
-                  text: tr.t("view.day") === "Day" ? "Event" : "Evento"
+                  text: tr.t("events.event")
                   color: Commons.Color.accent
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
@@ -4345,7 +4345,7 @@ Ui.Panel {
                   text: {
                     var p = Model.parseDateKey(root.draftDateKey || root.selectedKey)
                     var dObj = p ? new Date(p.year, p.month, p.day, 12) : root.selectedDateObj
-                    var dStr = dObj.toLocaleDateString(root.labelLocale, Commons.I18n.t("clock.dayMonthFormat"))
+                    var dStr = dObj.toLocaleDateString(root.labelLocale, tr.t("clock.dayMonthFormat"))
                     if (root.newEventAllDay) return dStr + " · " + tr.t("events.allDay")
                     return dStr + "  " + Model.formatMinutes(root.draftStartMinutes) + " – " + Model.formatMinutes(root.draftEndMinutes)
                   }
@@ -4791,7 +4791,7 @@ Ui.Panel {
                   }
 
                   Text {
-                    text: "Google Maps"
+                    text: tr.t("form.mapsLabel")
                     font.family: root.contentFontFamily
                     font.pixelSize: Math.max(9, Style.font.caption - 1)
                     font.bold: true

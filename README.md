@@ -1,82 +1,56 @@
-# 📅 Omarchy Google Calendar Plugin
+# Google Calendar for Omarchy
+
+A bar clock for [Omarchy](https://omarchy.org) whose popup is a full agenda: Day, Week,
+Month and Year views of your Google Calendar, with event creation, drag to reschedule,
+search, Meet links and a reminder before each meeting. It replaces (and is a clone of)
+the stock clock, so it sits in the same place and keeps the year and life progress bars.
 
 <p align="center">
-  <b>Seamless Google Calendar synchronization & multi-view agenda (Day, Week, Month, Year) for Omarchy Linux.</b>
+  <img src="docs/view-month.png" alt="Month view" width="49%" />
+  <img src="docs/view-week.png" alt="Week view" width="49%" />
 </p>
+<p align="center">
+  <img src="docs/view-day.png" alt="Day view" width="49%" />
+  <img src="docs/view-year.png" alt="Year view" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/bar.png" alt="Bar widget with the next event" width="60%" />
+</p>
+
+*All screenshots are rendered by the dev harness from made-up events (see Development).*
+
+## Features
+
+- **Two ways to sync:** a secret iCal (.ics) address (read-only, 30 seconds to set up) or
+  Google OAuth2 (two-way: events you create, move or delete in Omarchy go to Google).
+  Without either, it works as a local agenda.
+- **Four views:** Day and Week on a proportional time grid with a "now" line, Month with
+  event dots and the selected day's agenda, Year with event density per day.
+- **Create and edit in place:** drag on the Day or Week grid (15-minute snap) or press `N`;
+  drag an event's edges to change its time, drag it to another day to move it. Optional
+  Google Meet link, location suggestions with a map preview, description.
+- **Search** (`/`) across all synced events.
+- **Reminders:** a desktop notification a few minutes before each meeting (with a button
+  that opens the Meet link), and optionally the next event next to the clock.
+- **Keyboard driven**, follows the Omarchy theme and language (English, Portuguese).
+- **No dependencies to install:** the sync helper (`omarchy-gcal`) is plain Python 3
+  standard library.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Omarchy-Shell%20Plugin-blue?style=flat-square" alt="Omarchy Plugin" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Python-3%20Stdlib%20(Zero%20pip)-yellow?style=flat-square" alt="Python Zero Dependencies" />
+  <img src="docs/new-event.png" alt="New event drawer" width="49%" />
+  <img src="docs/settings.png" alt="Sync settings" width="49%" />
 </p>
 
----
-
-## 📸 Screenshots
-
-<p align="center">
-  <b>Month View (Mês)</b><br>
-  <i>Classic month grid with event indicators, selected day agenda, and sync toolbar</i><br>
-  <img src="assets/view-month.png" alt="Month View" width="85%" />
-</p>
-
-<p align="center">
-  <b>Week View (Semana)</b><br>
-  <i>7-day continuous grid with proportional event blocks and live current time indicator</i><br>
-  <img src="assets/view-week.png" alt="Week View" width="85%" />
-</p>
-
-<p align="center">
-  <b>Day View (Dia)</b><br>
-  <i>Continuous 24h timeline schedule with proportional event blocks, current time line, and drag-to-resize handles</i><br>
-  <img src="assets/view-day.png" alt="Day View" width="85%" />
-</p>
-
-<p align="center">
-  <b>Year View (Ano)</b><br>
-  <i>12-month bird's-eye overview showing annual event density</i><br>
-  <img src="assets/view-year.png" alt="Year View" width="85%" />
-</p>
-
----
-
-## ✨ Features
-
-- 🔄 **Two Sync Methods:**
-  - **Quick iCal (.ics) Link:** Connect in 30 seconds with your Google Calendar secret iCal address (no OAuth or cloud setup needed).
-  - **Google Cloud OAuth2:** Full two-way sync (create, edit, and delete events directly from Omarchy).
-- 🗓️ **4 Rich View Modes:**
-  - **Day:** Continuous 24h timeline with proportional duration blocks, live "Now" indicator, and drag-to-resize handles on event borders.
-  - **Week:** 7-day continuous grid with proportional event blocks placed in their correct hourly positions.
-  - **Month:** Classic Omarchy calendar grid enriched with event badges, dots, and selected day agenda.
-  - **Year:** 12-month bird's-eye view showing annual event distribution and counters.
-- 🎯 **Drag & Double-Click Creation:** Click and drag directly on any time slot in Day or Week view to draw an event with 15-minute snap, opening the quick options drawer upon release. Double-click anywhere to instantly create a 1-hour slot.
-- 🎛️ **Segmented Capsule & Action Toolbar:** Clean segmented control (`Day | Week | Month | Year`) separated from standardized actions (`Today`, `+ Event`, `Sync`, `Search`, `Settings`).
-- ↔️ **Drag-to-Resize Events:** Drag the top or bottom edges of any event card to adjust start time or duration directly with live 15-minute feedback.
-- ⚡ **Instant Event Creation:** Fast inline `+ Event` drawer with keyboard focus (`N` or `+`). Works even offline as a local agenda!
-- 🔍 **Real-Time Event Search:** Press `/` or click search to instantly filter upcoming and historical events across all your calendars.
-- 🔔 **Desktop & Bar Notifications:** Native desktop reminder notification 10 minutes before your meetings, plus live upcoming indicator directly beside the clock.
-- ⌨️ **Keyboard & Vim Driven:** Full keyboard navigation (`1`–`4`, `[` / `]`, Vim `h`/`j`/`k`/`l`, `T`, `N`, `R`, `S`, `Esc`).
-- 🖱️ **Interactive Event Cards:** Single click to open Google Meet/Zoom links directly; double click to inspect the day's full agenda.
-- ⏳ **Memento Mori:** Retains Omarchy's beloved year progress bar and life expectancy counter.
-- 🌍 **Bilingual:** Native Portuguese (`pt-BR`) and English (`en`) support, following your Omarchy system language live.
-- 🪶 **Zero External Dependencies:** Sync engine runs on pure Python 3 standard library (`urllib`, `sqlite3`, `json`).
-
----
-
-## 🚀 Installation
-
-Run this single command in your terminal:
+## Install
 
 ```bash
 omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --enable
 ```
 
-> **Note:** If prompted for bar placement, select `center` (or `centerEnd`) to place it in your top bar.
+When asked where to place it in the bar, pick `center` (next to, or instead of, the stock
+clock). Then click the clock and press `S` to connect your calendar.
 
----
-
-## ⚙️ How to Connect Google Calendar
+## Connect Google Calendar
 
 The plugin supports two flexible synchronization methods depending on your needs.
 
@@ -154,17 +128,13 @@ omarchy-gcal auth
 6. A browser tab will open automatically. Sign in with your Google account.
 7. If you see an *"Unverified app"* warning screen, click **Advanced > Go to Omarchy Calendar (unsafe)** (this is normal for self-created personal test apps).
 8. Grant calendar access permissions and click **Continue**.
-9. The browser will confirm: *"Google Calendar conectado ao Omarchy!"*.
+9. The browser confirms: *"Google Calendar is connected to Omarchy."*
 
 🎉 You're all set! Tokens will now renew automatically in the background.
 
----
+> Guia em português: [docs/GUIA_DE_SINCRONIZACAO.md](docs/GUIA_DE_SINCRONIZACAO.md).
 
-> 📖 **Guia em Português:** Para instruções detalhadas passo a passo em português, consulte o [docs/GUIA_DE_SINCRONIZACAO.md](docs/GUIA_DE_SINCRONIZACAO.md).
-
----
-
-## ⌨️ Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Shortcut | Description |
 |---|---|
@@ -179,9 +149,7 @@ omarchy-gcal auth
 | `W` | Toggle week start day (Monday / Sunday) in Month view |
 | `Esc` | Close active drawer or calendar panel |
 
----
-
-## 🛠️ CLI Utilities
+## Command line
 
 The backend engine can also be queried directly from your shell or scripts:
 
@@ -204,8 +172,88 @@ omarchy-gcal sync
 omarchy-gcal add --title "Team Meeting" --date 2026-11-10 --start 14:00 --end 15:00 --location "Google Meet"
 ```
 
----
+## Configuration
 
-## 📄 License
+The widget reads these optional keys from its entry in the bar layout
+(`~/.config/omarchy/shell.json`, the same place as the stock clock's settings):
+
+| Key | Default | What it does |
+|---|---|---|
+| `format` / `formatAlt` | `dddd dd MMM h:mm AP` / `d MMMM 'W'ww yyyy` | Clock formats (right-click cycles through presets) |
+| `verticalFormat` / `verticalFormatAlt` | `HH\n—\nmm` / … | Formats for a vertical bar |
+| `defaultViewMode` | `month` | `day`, `week`, `month` or `year` |
+| `weekStartDay` | your locale | `monday`, `sunday`, … (`W` toggles it) |
+| `autoSync` | `true` | Sync in the background |
+| `syncIntervalMinutes` | `10` | How often |
+| `showBarEventBadge` | `false` | Show the next event next to the clock |
+| `notificationsEnabled` | `true` | Reminder notifications |
+| `notifyBeforeMinutes` | `10` | How long before a meeting |
+| `birthYear`, `lifeExpectancy` | unset, `90` | The LIFE progress bar (also editable in the panel) |
+| `gcalBinPath` | the bundled `omarchy-gcal` | Use another helper binary |
+
+The helper keeps its own settings in `~/.config/omarchy/gcal/config.json` (iCal
+addresses, OAuth client) and its cache in `~/.local/state/omarchy/gcal/`.
+`OMARCHY_GCAL_CONFIG_DIR` and `OMARCHY_GCAL_STATE_DIR` move them.
+
+## Privacy
+
+Everything stays on your machine except the requests below; there is no telemetry.
+
+**What it stores** (files are created `0600`, folders `0700`):
+- `~/.config/omarchy/gcal/config.json`: your secret iCal address(es) and, if you paste
+  them, your OAuth client ID and secret.
+- `~/.config/omarchy/gcal/credentials.json` and `token.json`: the OAuth client file and
+  the access/refresh token.
+- `~/.local/state/omarchy/gcal/events.json`: the synced events (about two years back and
+  one forward), read by the bar widget; `local_events.json`: events created offline.
+- `~/.local/bin/omarchy-gcal`: a symlink to the helper so you can use it in a terminal.
+  It is only created when nothing is there.
+
+**What it reads:** besides the files above, `omarchy-gcal auth` looks in `~/Downloads`
+for a `client_secret_*.json` file (the one Google Cloud just gave you) and copies the
+newest one to `credentials.json`.
+
+**Hosts it contacts:**
+- `www.googleapis.com` and `oauth2.googleapis.com`: the Calendar API and token refresh
+  (OAuth2 mode only). Sign-in opens `accounts.google.com` in your browser, with a
+  one-time callback on `127.0.0.1`.
+- The iCal address(es) you configured (usually `calendar.google.com`), over HTTPS only.
+- `photon.komoot.io`, then `nominatim.openstreetmap.org` as a fallback: the text you type
+  in an event's **location** field, for address suggestions (only while you type there).
+- `basemaps.cartocdn.com`: map tiles for the small map shown after picking a suggested
+  location.
+- Links you click (Meet, Google Maps, the event on Google Calendar) open in your browser.
+
+The secret iCal address is never printed: `omarchy-gcal status` and sync errors show
+only its host.
+
+
+## Development
+
+Never develop on the installed copy (`~/.config/omarchy/plugins/gusthx.clock`): saving
+there hot-reloads your bar. Work in a clone and use the isolated harness in `dev/`. It
+runs its own Quickshell instance with Omarchy's `Commons`/`Ui` libraries, made-up events
+and a stub helper, so it never touches your bar, calendar, tokens or config.
+
+```bash
+dev/run.sh check      # compile every QML type (Panel and BarWidget included)
+dev/run.sh docs       # render all screenshots in docs/ (offscreen, nothing on screen)
+dev/run.sh panel week # just one view
+dev/run.sh preview    # a window with the panel, to click around in
+dev/test.sh           # unit tests: helper (Python) and Model.js (node)
+omarchy plugin validate .
+```
+
+When everything is committed, install it once and restart the shell once:
+
+```bash
+dev/deploy.sh   # validates, checks, tests, updates the installed plugin, restarts the shell
+```
+
+If the installed plugin is a plain copy, `deploy.sh` backs it up to
+`~/Work/backups/gusthx.clock.<timestamp>` and replaces it with a git checkout of this repo.
+See [AGENTS.md](AGENTS.md) for the rules AI agents follow here.
+
+## License
 
 [MIT](LICENSE) © 2026 Gustavo Costa

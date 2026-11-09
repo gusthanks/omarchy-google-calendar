@@ -37,7 +37,10 @@ Ui.BarWidget {
     if (custom !== "") return custom
     return Qt.resolvedUrl("omarchy-gcal").toString().replace(/^file:\/\//, "")
   }
-  readonly property string gcalCachePath: Quickshell.env("HOME") + "/.local/state/omarchy/gcal/events.json"
+  // Same override as the helper's OMARCHY_GCAL_STATE_DIR (the dev harness
+  // points both at mock data).
+  readonly property string gcalCachePath: (Quickshell.env("OMARCHY_GCAL_STATE_DIR")
+    || (Quickshell.env("HOME") + "/.local/state/omarchy/gcal")) + "/events.json"
   readonly property bool autoSyncEnabled: setting("autoSync", true) !== false
   readonly property int syncIntervalMinutes: Math.max(1, parseInt(setting("syncIntervalMinutes", 10), 10) || 10)
   readonly property bool showBarEventBadge: setting("showBarEventBadge", false) === true
@@ -98,7 +101,7 @@ Ui.BarWidget {
   }
 
   readonly property string barTooltipText: {
-    var baseTip = I18n.t("clock.toggleFormat")
+    var baseTip = tr.t("clock.toggleFormat")
     if (upcomingSummary.activeEvent) {
       var actLine = tr.t("events.happeningNow").arg(
         Model.neutralizeMarkup(upcomingSummary.activeEvent.title, 48)
