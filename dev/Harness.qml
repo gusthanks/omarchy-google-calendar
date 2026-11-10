@@ -15,6 +15,7 @@ import "plugin/Model.js" as Model
 //   settings the panel with the sync settings drawer -> $OUT
 //   event    the panel with the new-event drawer     -> $OUT
 //   bar      the bar widget on a bar-like strip      -> $OUT
+//   gif      scripted tour of the views, one png per state -> $OUT/NNNN.png + $OUT/list.txt
 ShellRoot {
   id: shell
 
@@ -76,6 +77,7 @@ ShellRoot {
       width: card ? card.width : 10
       height: card ? card.height : 10
 
+      readonly property var panel: calPanel
       Plugin.Panel {
         id: calPanel
         hostWidget: mockHost
@@ -127,6 +129,93 @@ ShellRoot {
     }
   }
   property Item stage: null
+  property var sceneLoader: null
+
+  // GIF: one frame per state of a scripted tour, each held for its own time
+  // (an ffmpeg concat list), so the machine renders ~10 frames instead of
+  // ~100 near-identical ones. The panel's height changes with the view: a
+  // first pass walks the tour without grabbing to find the tallest state,
+  // the second grabs every state on a frame of that fixed size, the panel
+  // pinned to its top.
+  property int gifHeight: 10
+  readonly property int gifSettle: 700
+  Component {
+    id: gifStage
+    Rectangle {
+      color: Commons.Color.background
+      width: gifLoader.item ? gifLoader.item.width + 24 : 10
+      height: shell.gifHeight
+      clip: true
+      Component.onCompleted: shell.stage = this
+      Loader {
+        id: gifLoader
+        anchors.top: parent.top
+        anchors.topMargin: 12
+        anchors.horizontalCenter: parent.horizontalCenter
+        sourceComponent: panelScene
+        Component.onCompleted: shell.sceneLoader = gifLoader
+      }
+    }
+  }
+
+  property var gifToday: null
+  // [action, seconds on screen]. The GIF loops back to the first state, so
+  // the tour does not return to the Week view itself. ffmpeg's concat list
+  // repeats the last frame (see below), which shows it twice as long: ~10 s
+  // in all.
+  readonly property var gifTour: [
+    [function(p) { p.cancelAddingEvent(); p.setViewMode("week"); p.selectDate(gifToday.y, gifToday.m, gifToday.d) }, 1.8],
+    [function(p) { p.setViewMode("day") }, 1.3],
+    [function(p) { p.startAddingEvent(14) }, 0.6],
+    [function(p) { p.newEventTitleText = "Coffee with the team" }, 1.5],
+    [function(p) { p.cancelAddingEvent(); p.setViewMode("month") }, 1.4],
+    [function(p) { p.moveDay(1) }, 0.6],
+    [function(p) { p.moveDay(1) }, 1.0],
+    [function(p) { p.setViewMode("year") }, 1.0]
+  ]
+  property int gifPass: 0   // 0 measuring, 1 grabbing
+  property int gifIndex: 0
+  property string gifList: ""
+  function gifPanel() { return sceneLoader && sceneLoader.item ? sceneLoader.item.panel : null }
+  function gifFile(i) { return ("000" + i).slice(-4) + ".png" }
+  FileView { id: listFile; path: shell.mode === "gif" ? shell.out + "/list.txt" : ""; printErrors: false; blockWrites: true }
+  function gifStart() {
+    var p = gifPanel()
+    if (!p) { console.warn("GIF no panel"); Qt.quit(); return }
+    gifToday = { y: p.selectedYear, m: p.selectedMonth, d: p.selectedDay }
+    gifPass = 0; gifIndex = 0
+    gifTour[0][0](p)
+    gifTimer.restart()
+  }
+  Timer {
+    id: gifTimer
+    interval: shell.gifSettle
+    onTriggered: {
+      var p = shell.gifPanel()
+      if (shell.gifPass === 0) {
+        shell.gifHeight = Math.max(shell.gifHeight, shell.sceneLoader.item.height + 24)
+        shell.gifIndex++
+        if (shell.gifIndex >= shell.gifTour.length) { shell.gifPass = 1; shell.gifIndex = 0 }
+        shell.gifTour[shell.gifIndex][0](p)
+        gifTimer.restart()
+        return
+      }
+      var i = shell.gifIndex
+      shell.stage.grabToImage(function(r) {
+        r.saveToFile(shell.out + "/" + shell.gifFile(i))
+        shell.gifList += "file '" + shell.gifFile(i) + "'\nduration " + shell.gifTour[i][1] + "\n"
+        shell.gifIndex++
+        if (shell.gifIndex >= shell.gifTour.length) {
+          // The concat demuxer drops the last duration unless the file repeats.
+          listFile.setText(shell.gifList + "file '" + shell.gifFile(i) + "'\n")
+          Qt.quit()
+        } else {
+          shell.gifTour[shell.gifIndex][0](p)
+          gifTimer.restart()
+        }
+      }, Qt.size(shell.stage.width * 1.5, shell.stage.height * 1.5))
+    }
+  }
 
   FloatingWindow {
     visible: true
@@ -134,13 +223,13 @@ ShellRoot {
     implicitWidth: offLoader.item ? offLoader.item.width : 10
     implicitHeight: offLoader.item ? offLoader.item.height : 10
     color: Commons.Color.background
-    Loader { id: offLoader; sourceComponent: stageComponent }
+    Loader { id: offLoader; sourceComponent: shell.mode === "gif" ? gifStage : stageComponent }
   }
 
-  // One-shot captures: let layout and fonts settle, grab at 2x, quit.
+  // Captures: let layout and fonts settle, then grab at 2x and quit (or start the GIF).
   Timer {
     running: shell.capturing
     interval: 2000
-    onTriggered: shell.save(shell.stage, shell.out, function() { Qt.quit() })
+    onTriggered: shell.mode === "gif" ? shell.gifStart() : shell.save(shell.stage, shell.out, function() { Qt.quit() })
   }
 }

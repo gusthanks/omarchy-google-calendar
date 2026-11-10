@@ -11,6 +11,7 @@
 #   dev/run.sh settings         docs/settings.png  (sync settings drawer)
 #   dev/run.sh event            docs/new-event.png (new event drawer)
 #   dev/run.sh bar              docs/bar.png       (bar widget with event badge)
+#   dev/run.sh gif              docs/demo.gif      (a short tour of the views)
 #   dev/run.sh docs             all of the captures above
 #   dev/run.sh preview [VIEW]   a window with the panel to click around in
 #   dev/run.sh test             unit tests (same as dev/test.sh)
@@ -40,15 +41,34 @@ python3 -I "$repo/dev/mock/events.py" "$cfg/state/events.json" ${MOCK_TODAY:+"$M
 export OMARCHY_GCAL_STATE_DIR="$cfg/state" OMARCHY_GCAL_CONFIG_DIR="$cfg/config"
 export OMARCHY_GCAL_NO_CLI_LINK=1 MOCK_GCAL="$repo/dev/mock/omarchy-gcal" MOCK_GCAL_LOG="$cfg/mock-gcal.log"
 
+# Log lines from Quickshell/Qt that are expected offscreen and not ours.
+noise='qmlscanner|portal|polkit|QT_QPA_PLATFORM|actually running wayland|window masks|--- WARNING ---|No PanelWindow backend|toplevel-mapping|Hyprland IPC|HYPRLAND_INSTANCE'
+
 render() { # mode out [log-name]
   local log="$cfg/${3:-$1}.log"
-  MODE="$1" OUT="$2" timeout 60 env QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR="${DEV_SCALE:-1.6}" \
+  MODE="$1" OUT="$2" timeout "${CAPTURE_TIMEOUT:-60}" env QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR="${DEV_SCALE:-1.6}" \
     quickshell -n -p "$cfg/shell.qml" >"$log" 2>&1 || true
-  local noise='qmlscanner|portal|polkit|QT_QPA_PLATFORM|actually running wayland|window masks|--- WARNING ---|No PanelWindow backend|toplevel-mapping|Hyprland IPC|HYPRLAND_INSTANCE'
   if grep -E 'WARN|ERROR' "$log" | grep -vE "$noise" | grep -q .; then
     grep -E 'WARN|ERROR' "$log" | grep -vE "$noise" >&2
   fi
-  [ -f "$2" ] && echo "${2#"$repo"/}" || { echo "no image: see $log" >&2; return 1; }
+  # A still is one png; the GIF is a folder of frames plus list.txt.
+  [ -f "$2" ] || [ -s "$2/list.txt" ] || { echo "no image: see $log" >&2; return 1; }
+  echo "${2#"$repo"/}"
+}
+
+gif() {
+  local frames="$cfg/frames"
+  rm -rf "$frames"; mkdir -p "$frames"
+  # One frame per state of the tour plus how long it stays on screen
+  # (list.txt, an ffmpeg concat list); rendered at 1x and grabbed at 1.5x.
+  # The tour takes minutes on a slow, busy machine, hence the long timeout
+  # (GIF_TIMEOUT seconds); the harness quits as soon as the last frame is saved.
+  DEV_SCALE="${DEV_SCALE:-1}" CAPTURE_TIMEOUT="${GIF_TIMEOUT:-900}" VIEW=week render gif "$frames" gif >/dev/null \
+    || { echo "no frames: see $cfg/gif.log" >&2; return 1; }
+  ffmpeg -loglevel error -y -f concat -safe 0 -i "$frames/list.txt" \
+    -vf "fps=10,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
+    "$repo/docs/demo.gif"
+  echo "docs/demo.gif ($(ls "$frames"/*.png | wc -l) states, $(du -k "$repo/docs/demo.gif" | cut -f1) KB)"
 }
 
 mkdir -p "$repo/docs"
@@ -58,7 +78,8 @@ case "${1:-preview}" in
   settings) VIEW=month render settings "$repo/docs/settings.png" ;;
   event)    VIEW=day render event "$repo/docs/new-event.png" ;;
   bar)      render bar "$repo/docs/bar.png" ;;
-  docs)     "$0" panel; "$0" settings; "$0" event; "$0" bar ;;
+  gif)      gif ;;
+  docs)     "$0" panel; "$0" settings; "$0" event; "$0" bar; "$0" gif ;;
   preview)  MODE=preview VIEW="${2:-month}" quickshell -n -p "$cfg/shell.qml" ;;
   test)     exec "$repo/dev/test.sh" ;;
   check)
@@ -76,5 +97,5 @@ case "${1:-preview}" in
     if grep -q 'Failed to load configuration' "$cfg/check.log"; then grep -E 'ERROR' "$cfg/check.log" >&2; exit 1; fi
     grep -a 'CHECK ' "$cfg/check.log" | sed 's/^.*CHECK /CHECK /'
     grep -aq 'CHECK ' "$cfg/check.log" && ! grep -a 'CHECK ' "$cfg/check.log" | grep -vq ' OK$' ;;
-  *) sed -n '2,22p' "$0"; exit 1 ;;
+  *) sed -n '2,23p' "$0"; exit 1 ;;
 esac
