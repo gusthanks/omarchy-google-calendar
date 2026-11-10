@@ -2,10 +2,10 @@
 
 ## Never work on the live plugin
 
-The copy installed at `~/.config/omarchy/plugins/gusthx.google-calendar/` is the one the user's Omarchy
-shell is running. Saving a file there hot-reloads the plugin in the user's bar, and
-`omarchy restart shell` restarts the whole bar. Doing that over and over while developing
-is disruptive.
+The copy installed at `~/.config/omarchy/plugins/gusthx.google-calendar/` is the one the
+user's Omarchy shell is running. Saving a file there hot-reloads the plugin in the user's
+bar, and `omarchy restart shell` restarts the whole bar. Doing that over and over while
+developing is disruptive.
 
 - **Edit only this repository** (the working copy in `~/Work/`).
 - **Do not** edit, copy into, or `git` anything under `~/.config/omarchy/plugins/`.
@@ -29,6 +29,7 @@ dev/run.sh panel [VIEW] # docs/view-<day|week|month|year>.png
 dev/run.sh settings     # docs/settings.png
 dev/run.sh event        # docs/new-event.png
 dev/run.sh bar          # docs/bar.png
+dev/run.sh gif          # docs/demo.gif (needs ffmpeg; takes a minute or two)
 dev/run.sh docs         # all captures
 dev/run.sh preview      # a window with the panel (opens on the desktop: only if asked)
 dev/test.sh             # unit tests (helper + Model.js), all in temp dirs
@@ -54,12 +55,12 @@ dev/deploy.sh   # validate + check + tests, update the live plugin, restart the 
 ```
 
 If the live plugin is a plain copy, the script backs it up to
-`~/Work/backups/gusthx.google-calendar.<timestamp>` and replaces it with a git checkout of this
-repo; afterwards it fast-forwards. The shell's hot reload is not reliable for plugins (the
-old version can stay on screen), so the deploy always ends with one
-`omarchy restart shell`. Do not tell the user something is done before this ran. Never use
-`omarchy refresh shell` (it resets the bar layout). Never deploy or restart in the middle
-of a task.
+`~/.local/state/omarchy/plugin-backups/gusthx.google-calendar.<timestamp>` (or
+`$BACKUP_DIR`) and replaces it with a git checkout of this repo; afterwards it
+fast-forwards. The shell's hot reload is not reliable for plugins (the old version can
+stay on screen), so the deploy always ends with one `omarchy restart shell`. Do not tell
+the user something is done before this ran. Never use `omarchy refresh shell` (it resets
+the bar layout). Never deploy or restart in the middle of a task.
 
 ## The old id (`gusthx.clock`)
 
@@ -76,5 +77,9 @@ while `~/.config/omarchy/plugins/gusthx.clock` still exists. Test it only agains
 - Strings go through the plugin's own catalog in `i18n/` (`Commons.Translations`, `tr`),
   never through `Commons.I18n` keys, which Omarchy may rename.
 - Never print or show the secret iCal address or tokens (log the host only).
+- The widget keeps answering IPC on the stock clock's target `omarchy.clock` (and the
+  1.0 target `omarchy-google-calendar`) as a compatibility alias, so Omarchy's stock
+  `Super + Ctrl + Alt + D` binding and old scripts keep working. Do not remove these
+  `ShellIpc` blocks in `BarWidget.qml`.
 - The bar widget is always visible on an older laptop: keep it cheap (no extra timers or
   processes); heavy work belongs in the panel content, which loads on first open.

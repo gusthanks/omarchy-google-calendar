@@ -1,10 +1,18 @@
-# Google Calendar for Omarchy
+# Calendar for Google
+
+**🇺🇸 English** · [🇧🇷 Português (Brasil)](README.pt-BR.md)
 
 A bar clock for [Omarchy](https://omarchy.org) whose popup is a full agenda: Day, Week,
 Month and Year views of your Google Calendar, with event creation, drag to reschedule,
-search, Meet links and a reminder before each meeting. It replaces (and is a clone of)
-the stock clock, so it sits in the same place and keeps the year and life progress bars.
+search, Meet links and a reminder before each meeting. It is a clone of Omarchy's stock
+clock, so it sits in the same place, keeps the year and life progress bars, and answers
+the stock calendar shortcut (`Super + Ctrl + Alt + D`).
 
+Not affiliated with Google. Google Calendar is a trademark of Google LLC.
+
+<p align="center">
+  <img src="docs/demo.gif" alt="A tour of the Week, Day, Month and Year views and the new-event drawer" width="70%" />
+</p>
 <p align="center">
   <img src="docs/view-month.png" alt="Month view" width="49%" />
   <img src="docs/view-week.png" alt="Week view" width="49%" />
@@ -17,7 +25,8 @@ the stock clock, so it sits in the same place and keeps the year and life progre
   <img src="docs/bar.png" alt="Bar widget with the next event" width="60%" />
 </p>
 
-*All screenshots are rendered by the dev harness from made-up events (see Development).*
+*All screenshots and the GIF are rendered by the dev harness from made-up events (see
+Development).*
 
 ## Features
 
@@ -47,92 +56,54 @@ the stock clock, so it sits in the same place and keeps the year and life progre
 omarchy plugin add https://github.com/gusthanks/omarchy-google-calendar.git --enable
 ```
 
-When asked where to place it in the bar, pick `center` (next to, or instead of, the stock
-clock). Then click the clock and press `S` to connect your calendar.
+When asked where to place it in the bar, pick `center` (instead of the stock clock).
+Then click the clock and press `S` to connect your calendar.
+
+### Upgrading from 1.2 or earlier (plugin id `gusthx.clock`)
+
+In 1.3.0 the plugin id changed from `gusthx.clock` to `gusthx.google-calendar`, so
+`omarchy plugin update` cannot carry an existing install over by itself. Run the
+migration once from a fresh clone, then restart the shell:
+
+```bash
+git clone https://github.com/gusthanks/omarchy-google-calendar.git ~/omarchy-google-calendar
+~/omarchy-google-calendar/dev/migrate-id.sh   # DRY_RUN=1 first to see what it would do
+omarchy restart shell
+```
+
+It backs up the old folder to `~/.local/state/omarchy/plugin-backups/` (set
+`BACKUP_DIR` to change it), installs `gusthx.google-calendar` as a git checkout, renames
+the widget's entry in `~/.config/omarchy/shell.json` (its settings and place in the bar
+are kept), repoints `~/.local/bin/omarchy-gcal` and removes the old folder. It is safe
+to run twice. Your calendar config, tokens and cache do not depend on the id and are not
+touched. Afterwards the clone can be deleted.
 
 ## Connect Google Calendar
 
-The plugin supports two flexible synchronization methods depending on your needs.
-
-### ⚖️ Comparison: Which method should you choose?
-
-| Feature | Option 1: Secret iCal URL (.ics) | Option 2: Google Cloud OAuth2 |
+| | Option 1: secret iCal address (.ics) | Option 2: Google Cloud OAuth2 |
 |---|---|---|
-| **Setup Time** | ⚡ **~30 seconds** | 🛠️ **~3–5 minutes** (one-time setup) |
-| **Sync Direction** | 📥 **One-way** (Google ➔ Omarchy) | 🔄 **Two-way** (Google ⇄ Omarchy) |
-| **Event Creation** | Saved locally in Omarchy | Pushed to Google Cloud / Mobile app |
-| **Google Cloud Project** | ❌ None required | ✅ Free Google Cloud Desktop App |
-| **Expiration** | 🔒 Never (permanent secret link) | 🔄 Automatic background token refresh |
-| **Best For** | Instant setup, viewing agenda & alerts | Full calendar control & bidirectional sync |
+| **Setup time** | ~30 seconds | ~3–5 minutes (once) |
+| **Sync direction** | One-way (Google ➔ Omarchy) | Two-way (Google ⇄ Omarchy) |
+| **New events** | Saved locally in Omarchy | Sent to Google (phone, web) |
+| **Google Cloud project** | None | A free one, created by you |
 
----
+**Option 1, secret iCal address.** In [Google Calendar on the web](https://calendar.google.com/),
+open your calendar's **Settings and sharing**, copy **"Secret address in iCal format"**
+(not the public one), then click the clock, press `S`, paste it and press **Save & Sync**.
 
-### Option 1: Secret iCal URL (Fastest — 30 seconds, Read-Only)
-
-Ideal if you only want to view your agenda, see your upcoming meetings, and receive native desktop notifications.
-
-1. Open [Google Calendar (Web)](https://calendar.google.com/) in your browser.
-2. In the left sidebar under **"My calendars"**, hover over your main calendar and click the three dots `⋮` > **Settings and sharing**.
-3. Scroll down to the **"Integrate calendar"** section.
-4. Locate the field **"Secret address in iCal format"** and copy the URL (`https://calendar.google.com/calendar/ical/.../basic.ics`).
-   > ⚠️ **Important:** Copy the **Secret address**, not the public address. The secret address allows Omarchy to read your private events without publishing them to the web.
-5. Click the clock on your Omarchy top bar to open the calendar.
-6. Press `S` (or click the gear icon `󰒓`), paste the URL into the **iCal (.ics) URL** field, and click **Save & Sync** (or press Enter).
-
----
-
-### Option 2: Google Cloud OAuth2 (Two-Way Sync — Read & Write)
-
-Ideal if you want events created inside Omarchy (via `+ Event`, pressing `N`, or `omarchy-gcal add`) to sync straight to Google Calendar servers, making them instantly visible on your phone and Google Calendar web.
-
-#### 1. Create a Free Project in Google Cloud
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Click the project dropdown at the top and select **"New Project"** (or open [projectcreate](https://console.cloud.google.com/projectcreate) directly).
-3. Set **Project name** to `Omarchy Calendar`.
-4. Leave **Organization** as **"No organization"** (default for personal `@gmail.com` accounts).
-5. Click **Create** and ensure this new project is selected in the top bar.
-
-#### 2. Enable the Google Calendar API
-1. In the navigation menu, go to **APIs & Services > Library** (or go directly to the [Calendar API page](https://console.cloud.google.com/marketplace/product/google/calendar-json.googleapis.com)).
-2. Click **Enable**.
-
-#### 3. Configure the Google Auth Platform / OAuth Consent Screen
-Google recently updated the console to the new **Google Auth Platform**:
-
-1. In the left sidebar, click **Google Auth Platform** (or **OAuth consent screen**).
-2. **App Information:** Enter `Omarchy Calendar` for the App name, and select your email for both support and developer contact. Click **Next** / **Save and Continue**.
-3. **Audience:** Select **External** (standard for personal `@gmail.com` accounts) and click **Next**.
-4. **Test Users:** Under the **Audience** menu (or Test users step), click **+ Add users**, enter your Google email address, and save. *(Required so your account has permission to log in while in testing mode)*.
-5. **Data Access:** Add `.../auth/calendar` if prompted for scopes.
-
-#### 4. Create OAuth Client Credentials
-1. In the left sidebar, click **Clients** (or **Credentials > Create Credentials > OAuth client ID**).
-2. Click **+ Create Client**.
-3. For **Application type**, choose **Desktop app**.
-4. Set the name to `Omarchy Shell`.
-5. Leave *"Use this client for an AI-powered agent"* **unchecked**.
-6. Click **Create**.
-7. In the confirmation dialog, click **Download JSON** (⬇️). This saves `client_secret_*.json` into your `~/Downloads` folder.
-
-#### 5. Authenticate in Omarchy (1 single command)
-Open your terminal and simply run:
+**Option 2, OAuth2.** Create a free Google Cloud project, enable the Calendar API, add
+yourself as a test user, create a **Desktop app** OAuth client and download its JSON to
+`~/Downloads`. Then run:
 
 ```bash
 omarchy-gcal auth
 ```
 
-> ⚡ **Auto-Discovery:** `omarchy-gcal` automatically detects the newly downloaded `client_secret_*.json` in your `~/Downloads` folder! You don't need to rename or copy anything manually.
->
-> *(Alternatively, pass a specific path: `omarchy-gcal auth --credentials-file ~/Downloads/client_secret_*.json`).*
+It picks up the newest `client_secret_*.json` in `~/Downloads`, opens the browser to
+sign in, and keeps the token refreshed from then on.
 
-6. A browser tab will open automatically. Sign in with your Google account.
-7. If you see an *"Unverified app"* warning screen, click **Advanced > Go to Omarchy Calendar (unsafe)** (this is normal for self-created personal test apps).
-8. Grant calendar access permissions and click **Continue**.
-9. The browser confirms: *"Google Calendar is connected to Omarchy."*
-
-🎉 You're all set! Tokens will now renew automatically in the background.
-
-> Guia em português: [docs/GUIA_DE_SINCRONIZACAO.md](docs/GUIA_DE_SINCRONIZACAO.md).
+**Step-by-step guide with every screen:** [docs/sync-guide.md](docs/sync-guide.md)
+([português](docs/sync-guide.pt-BR.md)).
 
 ## Keyboard shortcuts
 
@@ -232,17 +203,45 @@ The secret iCal address is never printed: `omarchy-gcal status` and sync errors 
 only its host.
 
 
+## Global shortcut and IPC
+
+The manifest declares the plugin a clone of the stock clock
+(`"omarchy": { "clonedFrom": "omarchy.clock" }`), so anything that opens the stock clock
+opens this panel instead, including Omarchy's default **`Super + Ctrl + Alt + D`**
+binding (`omarchy-shell shell toggle omarchy.clock`).
+
+The widget also answers IPC calls addressed to the stock clock, so scripts written for
+it keep working. These targets all take the same methods:
+
+| Target | Why |
+|---|---|
+| `gusthx.google-calendar` | The plugin's own id |
+| `omarchy.clock` | Compatibility with the stock clock and its shortcuts |
+| `omarchy-google-calendar` | The plugin id in 1.0, kept for old scripts |
+
+Methods: `toggle`, `open` / `show`, `close` / `hide`, `setViewMode <day|week|month|year>`,
+`syncCalendar`, `refresh`, `cycleFormat`, `toggleWeekStart`. For example:
+
+```bash
+omarchy-shell gusthx.google-calendar setViewMode week
+omarchy-shell omarchy.clock syncCalendar
+```
+
+Keep only one clock in the bar: with both the stock clock and this widget placed, both
+would claim the `omarchy.clock` target.
+
 ## Development
 
-Never develop on the installed copy (`~/.config/omarchy/plugins/gusthx.clock`): saving
-there hot-reloads your bar. Work in a clone and use the isolated harness in `dev/`. It
-runs its own Quickshell instance with Omarchy's `Commons`/`Ui` libraries, made-up events
-and a stub helper, so it never touches your bar, calendar, tokens or config.
+Never develop on the installed copy (`~/.config/omarchy/plugins/gusthx.google-calendar`):
+saving there hot-reloads your bar. Work in a clone and use the isolated harness in `dev/`.
+It runs its own Quickshell instance with Omarchy's `Commons`/`Ui` libraries, made-up
+events and a stub helper, so it never touches your bar, calendar, tokens or config.
 
 ```bash
 dev/run.sh check      # compile every QML type (Panel and BarWidget included)
-dev/run.sh docs       # render all screenshots in docs/ (offscreen, nothing on screen)
+dev/run.sh docs       # render all screenshots and the GIF in docs/ (offscreen, nothing on screen)
 dev/run.sh panel week # just one view
+dev/run.sh gif        # just docs/demo.gif (needs ffmpeg)
 dev/run.sh preview    # a window with the panel, to click around in
 dev/test.sh           # unit tests: helper (Python) and Model.js (node)
 omarchy plugin validate .
@@ -255,9 +254,24 @@ dev/deploy.sh   # validates, checks, tests, updates the installed plugin, restar
 ```
 
 If the installed plugin is a plain copy, `deploy.sh` backs it up to
-`~/Work/backups/gusthx.clock.<timestamp>` and replaces it with a git checkout of this repo.
-See [AGENTS.md](AGENTS.md) for the rules AI agents follow here.
+`~/.local/state/omarchy/plugin-backups/gusthx.google-calendar.<timestamp>` and replaces
+it with a git checkout of this repo. It refuses to run while an install under the old id `gusthx.clock` exists:
+run `dev/migrate-id.sh` first. See [AGENTS.md](AGENTS.md) for the rules AI agents follow
+here, and [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+## Credits
+
+- Built on [Omarchy](https://github.com/basecamp/omarchy) by David Heinemeier Hansson and
+  contributors: the bar widget started as a clone of Omarchy's stock clock
+  (`omarchy.clock`, MIT), whose clock formats, year and life progress bars and IPC
+  methods it keeps.
+- Location suggestions by [Photon](https://photon.komoot.io/) and
+  [Nominatim](https://nominatim.openstreetmap.org/) (OpenStreetMap data, © OpenStreetMap
+  contributors); map tiles by [CARTO](https://carto.com/).
+- Google Calendar and Google Meet are trademarks of Google LLC. This project is not
+  affiliated with or endorsed by Google.
 
 ## License
 
-[MIT](LICENSE) © 2026 Gustavo Costa
+[MIT](LICENSE) © 2026 Gustavo Costa (gusthx). Portions © David Heinemeier Hansson
+(Omarchy).
