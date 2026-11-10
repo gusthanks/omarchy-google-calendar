@@ -4,10 +4,10 @@
 # committed. It restarts the shell once at the end so the new version shows.
 #
 # If the live plugin is a plain copy (not a git checkout), it is first backed
-# up to ~/Work/backups/<id>.<timestamp>, then replaced by a git checkout of
-# this repo, so later deploys are a fast-forward. Your calendar config, tokens
-# and cache live outside the plugin (~/.config/omarchy/gcal,
-# ~/.local/state/omarchy/gcal) and are not touched.
+# up to $BACKUP_DIR/<id>.<timestamp> (default ~/.local/state/omarchy/plugin-backups),
+# then replaced by a git checkout of this repo, so later deploys are a
+# fast-forward. Your calendar config, tokens and cache live outside the plugin
+# (~/.config/omarchy/gcal, ~/.local/state/omarchy/gcal) and are not touched.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +35,7 @@ elif [[ -d $live/.git ]]; then
   git -C "$live" pull --ff-only -q "$repo" "$branch"
 else
   if [[ -e $live ]]; then
-    backup="$HOME/Work/backups/$id.$(date +%Y%m%d-%H%M%S)"
+    backup="${BACKUP_DIR:-$HOME/.local/state/omarchy/plugin-backups}/$id.$(date +%Y%m%d-%H%M%S)"
     mkdir -p "$(dirname "$backup")"
     cp -a "$live" "$backup"
     echo "Backed up the installed copy to $backup"

@@ -3,7 +3,8 @@
 # to `gusthx.google-calendar` (renamed in 1.3.0). Safe to run more than once:
 # every step checks whether it is already done and skips it.
 #
-#   1. Backs up ~/.config/omarchy/plugins/gusthx.clock to ~/Work/backups/.
+#   1. Backs up ~/.config/omarchy/plugins/gusthx.clock to $BACKUP_DIR
+#      (default ~/.local/state/omarchy/plugin-backups).
 #   2. Installs ~/.config/omarchy/plugins/gusthx.google-calendar as a git
 #      checkout of this repo (origin set to this repo's origin, like deploy.sh).
 #   3. In ~/.config/omarchy/shell.json, renames the widget entry
@@ -21,6 +22,7 @@
 #
 #   dev/migrate-id.sh          do it
 #   DRY_RUN=1 dev/migrate-id.sh   only print what would change
+#   BACKUP_DIR=~/backups dev/migrate-id.sh   keep the backups somewhere else
 #
 # Everything is relative to $HOME, so it can be rehearsed against a fake home:
 #   HOME=/run/user/1000/fakehome dev/migrate-id.sh
@@ -34,7 +36,7 @@ old="$plugins/$old_id"
 new="$plugins/$new_id"
 shell_json="$HOME/.config/omarchy/shell.json"
 cli_link="$HOME/.local/bin/omarchy-gcal"
-backups="$HOME/Work/backups"
+backups="${BACKUP_DIR:-$HOME/.local/state/omarchy/plugin-backups}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 dry="${DRY_RUN:-0}"
 
